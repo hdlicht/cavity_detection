@@ -1,0 +1,16 @@
+<launch>
+    <!-- Launch vertical_roi node -->
+    <node name="vertical_roi" pkg="cavity_detection" type="vertical_roi.py" output="screen">
+        <!-- <param name="param_name" value="param_value" /> -->
+    </node>
+
+    <!-- Launch horizontal_roi node -->
+    <node name="horizontal_roi" pkg="cavity_detection" type="horizontal_roi.py" output="screen">
+        <!-- <param name="param_name" value="param_value" /> -->
+    </node>
+
+    <!-- Launch cavity_map node -->
+    <node name="cavity_map" pkg="cavity_detection" type="cavity_map.py" output="screen">
+        <!-- <param name="param_name" value="param_value" /> -->
+    </node>
+</launch>

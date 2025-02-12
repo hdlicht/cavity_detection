@@ -1,0 +1,4 @@
+<launch>
+    <node name="detect_lines_node" pkg="cavity_detection" type="depth_rgb_3.py" output="screen"/>
+    <node name="line_marker_publisher" pkg="cavity_detection" type="markers.py" output="screen"/>
+</launch>
