@@ -25,8 +25,8 @@ tf_listener = None
 time_stamp = None
 model = None
 
-# Set the desired frequency for fusion (e.g., 10 Hz)
-FUSION_RATE = 10  # 10 times per second (i.e., 100 ms period)
+# Desired frequency (Hz)
+RUN_RATE = 10  # 10 times per second (i.e., 100 ms period)
 
 K_rgb = np.array([[570.342, 0.0,     314.5], 
                 [0.0,     570.342, 235.5],
@@ -105,7 +105,6 @@ def process_fusion(event):
             results = model.infer(rgb_image)[0]
             detections = sv.Detections.from_inference(results).xyxy
             if len(detections) < 3:
-                print("Not enough detections")
                 return
             pixels = get_pixels_in_rectangles(detections)
             points_3d = get_3d_points(depth_image, pixels)
@@ -118,7 +117,7 @@ def process_fusion(event):
             points_3d = np.column_stack((points_3d, np.ones(len(points_3d))))
             points_3d = np.dot(T, points_3d.T).T[:, :3]
 
-            plane_model, inliers = ransac_plane_fitting(points_3d, distance_threshold=0.02, num_iterations=500)
+            plane_model, inliers = ransac_plane_fitting(points_3d, threshold=0.02, iterations=500)
             a, b, c, d = plane_model
             inlier_pixels = pixels[inliers]
             inlier_points = points_3d[inliers]
@@ -132,7 +131,7 @@ def process_fusion(event):
             vert_roi.roi_type = 1
             vert_roi.center = Point((min_x + max_x) / 2, (min_y + max_y) / 2, 0)
             vert_roi.width = ((max_x - min_x)**2 + (max_y - min_y)**2)**0.5
-            vert_roi.depth = max_z - min_z
+            vert_roi.depth = max_z
             x = np.array([a, b, 0])
             x = x / np.linalg.norm(x)
             z = np.array([0, 0, 1])
@@ -146,24 +145,23 @@ def process_fusion(event):
 
             vert_pub.publish(vert_roi)
 
-            # Draw the inliers on the image
 
             min_x, min_y = np.min(inlier_pixels, axis=0)
             max_x, max_y = np.max(inlier_pixels, axis=0)
-
-            for x, y in inlier_pixels:
-                rgb_image[y, x] = (0, 255, 0)
 
             cv2.rectangle(rgb_image, (min_x, min_y), (max_x, max_y), (0, 255, 0), 2)
 
             for detection in detections:
                 x1, y1, x2, y2 = detection.astype(int)
-                height = y2 - y1
-                X, Y = np.meshgrid(np.arange(x1, x2), np.arange(y1, y2))
-                for x, y in zip(X.ravel(), Y.ravel()):
-                    if y+height >= H:
-                        continue
-                    rgb_image[y, x] = rgb_image[y + height, x]
+                cv2.rectangle(rgb_image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+                # # Replace the pixels in the rectangle with the pixels below (remove logo)
+                # height = y2 - y1
+                # X, Y = np.meshgrid(np.arange(x1, x2), np.arange(y1, y2))
+                # for x, y in zip(X.ravel(), Y.ravel()):
+                #     if y+height >= H:
+                #         continue
+                #     rgb_image[y, x] = rgb_image[y + height, x]
 
             pub.publish(bridge.cv2_to_imgmsg(rgb_image, encoding="bgr8"))
 
@@ -207,6 +205,6 @@ if __name__ == "__main__":
 
 
     # Timer to call process_fusion() periodically (e.g., every 100ms)
-    rospy.Timer(rospy.Duration(1.0 / FUSION_RATE), process_fusion)
+    rospy.Timer(rospy.Duration(1.0 / RUN_RATE), process_fusion)
 
     rospy.spin()

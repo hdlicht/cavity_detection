@@ -19,8 +19,8 @@ from visualization_msgs.msg import Marker
 data_buffer = {"rgb": None, "depth": None}
 buffer_lock = threading.Lock()
 
-# Set the desired frequency for fusion (e.g., 10 Hz)
-FUSION_RATE = 10  # 10 times per second (i.e., 100 ms period)
+# Desired frequency for fusion (Hz)
+RUN_RATE = 10  
 
 K_rgb = np.array([[570.342, 0.0,     314.5], 
                 [0.0,     570.342, 235.5],
@@ -69,7 +69,7 @@ def get_3d_points(depth_image, points_2d):
     points_3d = np.vstack((xs, ys, zs)).T
     return points_3d[valid]
 
-def process_fusion(event):
+def detect(event):
     """Periodically process the fusion of RGB and Depth images."""
     global data_buffer, buffer_lock, pub, models, calibration_count, average_model
     with buffer_lock:
@@ -94,6 +94,7 @@ def process_fusion(event):
             if calibration_count < 10:
                 # Fit a plane to the points with RANSAC
                 plane_model, inliers = ransac_plane_fitting(points, threshold=0.01, iterations=500)
+                print(plane_model)
                 models.append(plane_model)
                 calibration_count += 1
                 return
@@ -105,13 +106,13 @@ def process_fusion(event):
                 calibration_count += 1
 
             a, b, c, d = average_model
-            inliers = np.where(np.abs(a * points[:, 0] + b * points[:, 1] + c * points[:, 2] + d) < 0.05)[0]
+            # inliers = np.where(np.abs(a * points[:, 0] + b * points[:, 1] + c * points[:, 2] + d) < 0.05)[0]
 
-            # canny edge detection on the RGB image
-            bilateral = cv2.bilateralFilter(rgb_image, d=9, sigmaColor=75, sigmaSpace=75)
-            gray = cv2.cvtColor(bilateral, cv2.COLOR_BGR2GRAY)
-            rgb_edges = cv2.Canny(gray, 40, 80)
-            rgb_edges = cv2.cvtColor(rgb_edges, cv2.COLOR_GRAY2BGR)
+            # # canny edge detection on the RGB image
+            # bilateral = cv2.bilateralFilter(rgb_image, d=9, sigmaColor=75, sigmaSpace=75)
+            # gray = cv2.cvtColor(bilateral, cv2.COLOR_BGR2GRAY)
+            # rgb_edges = cv2.Canny(gray, 40, 80)
+            # rgb_edges = cv2.cvtColor(rgb_edges, cv2.COLOR_GRAY2BGR)
 
             # get the inliers for a plane offset from the above in the z direction
 
@@ -125,7 +126,6 @@ def process_fusion(event):
 
                 new_d = delta_d
                 distances = np.abs(a * points[:, 0] + b * points[:, 1] + c * points[:, 2] - new_d)
-
                 # Identify inliers based on the distance threshold
                 inlier_indices = np.where(distances < 0.01)[0]
                 if len(inlier_indices) > best_count:
@@ -148,19 +148,16 @@ def process_fusion(event):
                 blank[int(y*100)-1, int(x*100)-1] = 255
             blank = cv2.dilate(blank, None, iterations=2)
             blank = cv2.erode(blank, None, iterations=1)
+
+            # Find lines in the image
             lines = cv2.HoughLinesP(blank, 1, np.pi/180, 100, minLineLength=70, maxLineGap=20)
             if lines is None:
                 return
             lines = lines.flatten().reshape(-1, 4)
-
             lines = normalize_lines(lines)
 
-            line_slopes = (lines[:, 3] - lines[:, 1]) / (lines[:, 2] - lines[:, 0])
-            line_intercepts = lines[:, 1] - line_slopes * lines[:, 0]
-            line_descriptors = np.hstack((line_slopes.reshape(-1, 1), line_intercepts.reshape(-1, 1)))
-                   
+            # Use clustering to group collinear lines and reduce output
             clustering = DBSCAN(eps=20, min_samples=2).fit(lines)
-
             labels = clustering.labels_
             unique_labels = np.unique(labels)
             blank = cv2.cvtColor(blank, cv2.COLOR_GRAY2BGR)
@@ -180,14 +177,13 @@ def process_fusion(event):
             new_lines = np.array(new_lines)
             new_lines = normalize_lines(new_lines)
             slopes = (new_lines[:, 3] - new_lines[:, 1]) / (new_lines[:, 2] - new_lines[:, 0])
-            # cluster the lines based on the slope
+            
+            # cluster the new lines based on the slope
             clustering = DBSCAN(eps=.2, min_samples=2).fit(slopes.reshape(-1, 1))
             labels = clustering.labels_
             unique_labels = np.unique(labels)
             orientation = 0
 
-            # draw the lines in different colors based on the cluster
-            colors = np.random.randint(0, 255, (len(unique_labels), 3))
             for i, label in enumerate(unique_labels):
                 if label == -1:
                     continue
@@ -217,7 +213,6 @@ def process_fusion(event):
 
                 # calculate the perpendicular distance between adjacent lines
                 distances = np.sqrt(np.sum((intersections[1:] - intersections[:-1])**2, axis=1))
-                print(f"Distances: {distances}")
                 if max(distances) < 0.1:
                     continue
 
@@ -238,41 +233,39 @@ def process_fusion(event):
                 pts = np.array(pts, np.int32)
                 pts = pts.reshape((-1, 1, 2))
 
-                #cv2.polylines(blank, [pts], isClosed=True, color=(255, 0, 0), thickness=2)
-                # draw the lines in the same color
+                # convert to real world coordinates
 
                 cluster_lines = cluster_lines * 0.01
                 distances = distances * 0.01
-                #print(f'pre offset:{cluster_lines}')
                 offset = np.array([min_xyz[0], min_xyz[1], min_xyz[0], min_xyz[1]]).reshape(1, 4)
                 cluster_lines = cluster_lines + offset
-                #print(f'after offset:{cluster_lines}')
                 lengths = np.sqrt(np.sum((cluster_lines[:, :2] - cluster_lines[:, 2:])**2, axis=1))
                 orientation = np.arctan(average_slope)              
                 center = np.mean(cluster_lines.reshape(-1,2), axis=0)
-                # print(f"Center: {center}")
 
-                marker = Marker()
-                marker.header.frame_id = "base_footprint"  # Change to your frame
-                marker.header.stamp = rospy.Time.now()
-                marker.ns = "lines"
-                marker.id = 0
-                marker.type = Marker.LINE_LIST
-                marker.action = Marker.ADD        
-                marker.scale.x = 0.02  # Line width
+                # publish lines as markers for debugging
 
-                marker.color.r = 1.0
-                marker.color.g = 0.0
-                marker.color.b = 0.0
-                marker.color.a = 1.0  # Fully opaque
+                # marker = Marker()
+                # marker.header.frame_id = "base_footprint"  # Change to your frame
+                # marker.header.stamp = rospy.Time.now()
+                # marker.ns = "lines"
+                # marker.id = 0
+                # marker.type = Marker.LINE_LIST
+                # marker.action = Marker.ADD        
+                # marker.scale.x = 0.02  # Line width
 
-                for line in cluster_lines:
-                    p1 = Point(x=line[0], y=-line[1], z=0)
-                    p2 = Point(x=line[2], y=line[3], z=0)
-                    marker.points.append(p1)
-                    marker.points.append(p2)
-                        
-                pub2.publish(marker)
+                # marker.color.r = 1.0
+                # marker.color.g = 0.0
+                # marker.color.b = 0.0
+                # marker.color.a = 1.0  # Fully opaque
+
+                # for line in cluster_lines:
+                #     p1 = Point(x=line[0], y=-line[1], z=0)
+                #     p2 = Point(x=line[2], y=line[3], z=0)
+                #     marker.points.append(p1)
+                #     marker.points.append(p2)
+                
+                # pub2.publish(marker)
 
                 msg = Roi()
                 msg.header.frame_id = "base_footprint"
@@ -286,14 +279,10 @@ def process_fusion(event):
 
                 pub.publish(msg)
 
-            # # Draw the rectangle on the RGB edges image
-            # cv2.imshow("grayscale image", gray)
-            # cv2.imshow("RGB Edges", rgb_edges)
-            # # blank = cv2.flip(blank, 0)
-            # cv2.putText(blank, f"{(orientation * 180 / np.pi):.2f}", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(blank, f"{(orientation * 180 / np.pi):.2f}", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 1, cv2.LINE_AA)
 
-            # cv2.imshow("Inliers", blank)
-            # cv2.waitKey(1)
+            cv2.imshow("Inliers", blank)
+            cv2.waitKey(1)
         else:
             rospy.logwarn("Waiting for both RGB and Depth images to be received.")
 
@@ -330,5 +319,5 @@ if __name__ == "__main__":
     pub2 = rospy.Publisher('/lines', Marker, queue_size=2)
 
     # Timer to call process_fusion() periodically (e.g., every 100ms)
-    rospy.Timer(rospy.Duration(1.0 / FUSION_RATE), process_fusion)
+    rospy.Timer(rospy.Duration(1.0 / RUN_RATE), detect)
     rospy.spin()

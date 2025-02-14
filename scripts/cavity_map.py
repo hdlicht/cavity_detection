@@ -73,11 +73,12 @@ class CavityMap:
         marker.scale.x = msg.length
         marker.scale.y = msg.width
         marker.scale.z = msg.depth
-        marker.color.a = 0.3
+        marker.color.a = 0.5
         marker.color.r = 1.0
         marker.color.g = 0.0
         marker.color.b = 0.0
         if msg.roi_type == 0:
+            marker.pose.position.z = -msg.depth / 2.0
             marker.scale.x = msg.length
             marker.scale.y = msg.width
             marker.scale.z = msg.depth
