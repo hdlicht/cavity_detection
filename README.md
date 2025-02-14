@@ -6,7 +6,7 @@ The Cavity Detection Module is a component of a robotic solution for installing 
 
 
 <p align="center">
-    <img src="pics/horiz_w_robot.jpg" alt="Horizontal Cavity Detection" width="31%">
+    <img src="pics/horiz_w_robot.jpg" alt="Horizontal Cavity Detection" width="40%">
     <img src="pics/vert_front.jpg" alt="Vertical Cavity Detection" width="23%">
 </p>
 <p align="center">
