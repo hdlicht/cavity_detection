@@ -1,0 +1,11 @@
+# Ensure Python is recognized correctly
+*.py linguist-language=Python
+
+# Prevent .launch and .msg files from affecting the breakdown
+*.launch linguist-vendored
+*.msg linguist-vendored
+
+# Ignore logs, configs, and non-source files
+logs/** linguist-vendored
+config/** linguist-vendored
+
