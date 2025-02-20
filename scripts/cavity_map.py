@@ -8,8 +8,10 @@ from visualization_msgs.msg import MarkerArray
 from visualization_msgs.msg import Marker
 import tf
 import tf2_ros
-from geometry_msgs.msg import Point, Quaternion, PointStamped, QuaternionStamped, Transform
+from geometry_msgs.msg import Vector3, Quaternion, TransformStamped, Pose
 import tf2_geometry_msgs
+from tf2_geometry_msgs import do_transform_pose
+
 
 WALL_DEPTH = 0.2
 
@@ -95,12 +97,21 @@ class CavityMap:
         observation_distance = np.linalg.norm(np.array([msg.center.x, msg.center.y, msg.center.z]))
         self.publish_temporal(msg)
         try:
-            self.tf_listener.waitForTransform("map", msg.header.frame_id, msg.header.stamp, rospy.Duration(1.0))
-            transformed_msg = self.transform_roi(msg, "map")
-            observation = Observation(transformed_msg.center, transformed_msg.orientation, transformed_msg.length, transformed_msg.width, transformed_msg.depth, observation_distance, observation_angle)
+            pos, quat = self.tf_listener.lookupTransform("map", msg.header.frame_id, rospy.Time(0))
+            
+            transform_stamped = TransformStamped()
+            transform_stamped.transform.translation = Vector3(pos)
+            transform_stamped.transform.rotation = Quaternion(quat)
+            transform_stamped.child_frame_id = 'map'
+            transform_stamped.header = msg.header
+
+
+            transformed_msg = self.transform_roi(msg, "map", transform_stamped)
+            observation = Observation(transformed_msg.center, transformed_msg.orientation, 
+                                    transformed_msg.length, transformed_msg.width, 
+                                    transformed_msg.depth, observation_distance, observation_angle)
             for i, roi in enumerate(self.horiz_cavities):
                 if self.is_overlapping(roi, observation):
-                    # Update the existing cavity so it incapsulates the new one
                     roi.add_observation(observation)
                     updated = True
                     print(f"Updated cavity {roi.id}")
@@ -113,14 +124,23 @@ class CavityMap:
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
             rospy.logwarn(f"Transform error: {e}")
 
+
     def vert_callback(self, msg):
         updated = False
         observation_angle = np.array([msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w])
         observation_distance = np.linalg.norm(np.array([msg.center.x, msg.center.y, msg.center.z]))
         self.publish_temporal(msg)
         try:
-            self.tf_listener.waitForTransform("map", msg.header.frame_id, msg.header.stamp, rospy.Duration(1.0))
-            transformed_msg = self.transform_roi(msg, "map")
+            pos, quat = self.tf_listener.lookupTransform("map", msg.header.frame_id, rospy.Time(0))
+            
+            transform_stamped = TransformStamped()
+            transform_stamped.transform.translation = Vector3(pos[0], pos[1], pos[2])
+            transform_stamped.transform.rotation = Quaternion(quat[0], quat[1], quat[2], quat[3])
+            transform_stamped.child_frame_id = 'map'
+            transform_stamped.header = msg.header
+
+
+            transformed_msg = self.transform_roi(msg, "map", transform_stamped)
             observation = Observation(transformed_msg.center, transformed_msg.orientation, WALL_DEPTH, transformed_msg.width, transformed_msg.depth, observation_distance, observation_angle)
             for i, roi in enumerate(self.horiz_cavities):
                 if self.is_overlapping(roi, observation):
@@ -136,12 +156,20 @@ class CavityMap:
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
             rospy.logwarn(f"Transform error: {e}")
 
-    def transform_roi(self, roi, target_frame):
-        self.tf_listener.waitForTransform("map", roi.header.frame_id, roi.header.stamp, rospy.Duration(1.0))
-        center = PointStamped(roi.header, roi.center)
-        roi.center = self.tf_listener.transformPoint(target_frame, center).point
-        orientation = QuaternionStamped(roi.header, roi.orientation)
-        roi.orientation = self.tf_listener.transformQuaternion(target_frame, orientation).quaternion
+    def transform_roi(self, roi, target_frame, transform):
+        
+        # Create a PoseStamped for the orientation.
+        # The position here is arbitrary since we only care about the orientation.
+        pose = Pose()
+        pose.position = roi.center
+        pose.orientation = roi.orientation
+        
+        # Transform the pose
+        transformed_pose = do_transform_pose(pose, transform)
+        
+        # Update the roi with the transformed data
+        roi.center = transformed_pose.position
+        roi.orientation = transformed_pose.orientation
         roi.header.frame_id = target_frame
         return roi
 
