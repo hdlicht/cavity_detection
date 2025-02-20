@@ -10,7 +10,7 @@ from cv_bridge import CvBridge
 import threading
 import numpy as np
 import threading
-from std_msgs.msg import Header
+from std_msgs.msg import Header, Int16MultiArray
 from visualization_msgs.msg import Marker
 from ransac import ransac_plane_fitting
 from geometry_msgs.msg import Point, Quaternion
@@ -120,6 +120,7 @@ def process_fusion(event):
             plane_model, inliers = ransac_plane_fitting(points_3d, threshold=0.02, iterations=500)
             a, b, c, d = plane_model
             inlier_pixels = pixels[inliers]
+
             inlier_points = points_3d[inliers]
 
             min_x, min_y, min_z = np.min(inlier_points, axis=0)
@@ -148,6 +149,10 @@ def process_fusion(event):
 
             min_x, min_y = np.min(inlier_pixels, axis=0)
             max_x, max_y = np.max(inlier_pixels, axis=0)
+
+            msg = Int16MultiArray()
+            msg.data = [min_x, max_x]  # Replace with your two integers
+            pub2.publish(msg)
 
             cv2.rectangle(rgb_image, (min_x, min_y), (max_x, max_y), (0, 255, 0), 2)
 
@@ -200,6 +205,7 @@ if __name__ == "__main__":
     rospy.Subscriber(video_topic, Image, rgb_callback, queue_size=10)
     rospy.Subscriber(depth_topic, Image, depth_callback, queue_size=10)
     pub = rospy.Publisher('/new_image', Image, queue_size=10)
+    pub2 = rospy.Publisher("/int_pair", Int16MultiArray, queue_size=10)
     vert_pub = rospy.Publisher('/vert_roi', Roi, queue_size=10)
     marker_pub = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
 
