@@ -219,9 +219,9 @@ def detect(event):
                 for line in cluster_lines:
                     p1 = (line[0], line[1])
                     p2 = (line[2], line[3])
-                    cv2.line(blank, p1, p2, color=(0, 255, 0), thickness=2)
-                    cv2.circle(blank, p1, 5, (255, 255, 0), -1)
-                    cv2.putText(blank, f"({p1[0]},{p1[1]})", (p1[0], p1[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+                    # cv2.line(blank, p1, p2, color=(0, 255, 0), thickness=2)
+                    # cv2.circle(blank, p1, 5, (255, 255, 0), -1)
+                    # cv2.putText(blank, f"({p1[0]},{p1[1]})", (p1[0], p1[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
 
 
                 # draw a rectangle around the cluster
@@ -279,10 +279,10 @@ def detect(event):
 
                 pub.publish(msg)
 
-            cv2.putText(blank, f"{(orientation * 180 / np.pi):.2f}", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 1, cv2.LINE_AA)
+            # cv2.putText(blank, f"{(orientation * 180 / np.pi):.2f}", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 1, cv2.LINE_AA)
 
-            cv2.imshow("Inliers", blank)
-            cv2.waitKey(1)
+            # cv2.imshow("Inliers", blank)
+            # cv2.waitKey(1)
         else:
             rospy.logwarn("Waiting for both RGB and Depth images to be received.")
 

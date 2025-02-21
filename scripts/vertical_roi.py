@@ -154,21 +154,21 @@ def process_fusion(event):
             msg.data = [min_x, max_x]  # Replace with your two integers
             pub2.publish(msg)
 
-            cv2.rectangle(rgb_image, (min_x, min_y), (max_x, max_y), (0, 255, 0), 2)
+            # cv2.rectangle(rgb_image, (min_x, min_y), (max_x, max_y), (0, 255, 0), 2)
 
-            for detection in detections:
-                x1, y1, x2, y2 = detection.astype(int)
-                cv2.rectangle(rgb_image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+            # for detection in detections:
+            #     x1, y1, x2, y2 = detection.astype(int)
+            #     cv2.rectangle(rgb_image, (x1, y1), (x2, y2), (255, 0, 0), 2)
 
-                # # Replace the pixels in the rectangle with the pixels below (remove logo)
-                # height = y2 - y1
-                # X, Y = np.meshgrid(np.arange(x1, x2), np.arange(y1, y2))
-                # for x, y in zip(X.ravel(), Y.ravel()):
-                #     if y+height >= H:
-                #         continue
-                #     rgb_image[y, x] = rgb_image[y + height, x]
+            #     # # Replace the pixels in the rectangle with the pixels below (remove logo)
+            #     # height = y2 - y1
+            #     # X, Y = np.meshgrid(np.arange(x1, x2), np.arange(y1, y2))
+            #     # for x, y in zip(X.ravel(), Y.ravel()):
+            #     #     if y+height >= H:
+            #     #         continue
+            #     #     rgb_image[y, x] = rgb_image[y + height, x]
 
-            pub.publish(bridge.cv2_to_imgmsg(rgb_image, encoding="bgr8"))
+            # pub.publish(bridge.cv2_to_imgmsg(rgb_image, encoding="bgr8"))
 
         else:
             rospy.logwarn("Waiting for both RGB and Depth images to be received.")
@@ -204,10 +204,10 @@ if __name__ == "__main__":
     depth_topic = "/camera/depth/image"
     rospy.Subscriber(video_topic, Image, rgb_callback, queue_size=10)
     rospy.Subscriber(depth_topic, Image, depth_callback, queue_size=10)
-    pub = rospy.Publisher('/new_image', Image, queue_size=10)
+    # pub = rospy.Publisher('/new_image', Image, queue_size=10)
     pub2 = rospy.Publisher("/int_pair", Int16MultiArray, queue_size=10)
     vert_pub = rospy.Publisher('/vert_roi', Roi, queue_size=10)
-    marker_pub = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
+    # marker_pub = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
 
 
     # Timer to call process_fusion() periodically (e.g., every 100ms)

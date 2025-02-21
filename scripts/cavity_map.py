@@ -8,7 +8,7 @@ from visualization_msgs.msg import MarkerArray
 from visualization_msgs.msg import Marker
 import tf
 import tf2_ros
-from geometry_msgs.msg import Vector3, Quaternion, TransformStamped, Pose
+from geometry_msgs.msg import Vector3, Quaternion, TransformStamped, PoseStamped
 import tf2_geometry_msgs
 from tf2_geometry_msgs import do_transform_pose
 
@@ -100,8 +100,8 @@ class CavityMap:
             pos, quat = self.tf_listener.lookupTransform("map", msg.header.frame_id, rospy.Time(0))
             
             transform_stamped = TransformStamped()
-            transform_stamped.transform.translation = Vector3(pos)
-            transform_stamped.transform.rotation = Quaternion(quat)
+            transform_stamped.transform.translation = Vector3(pos[0], pos[1], pos[2])
+            transform_stamped.transform.rotation = Quaternion(quat[0], quat[1], quat[2], quat[3])
             transform_stamped.child_frame_id = 'map'
             transform_stamped.header = msg.header
 
@@ -160,16 +160,18 @@ class CavityMap:
         
         # Create a PoseStamped for the orientation.
         # The position here is arbitrary since we only care about the orientation.
-        pose = Pose()
-        pose.position = roi.center
-        pose.orientation = roi.orientation
+        pose = PoseStamped()
+        pose.pose.position = roi.center
+        pose.pose.orientation = roi.orientation
+        pose.header = roi.header
+        pose.header.stamp = rospy.Time(0)
         
         # Transform the pose
         transformed_pose = do_transform_pose(pose, transform)
         
         # Update the roi with the transformed data
-        roi.center = transformed_pose.position
-        roi.orientation = transformed_pose.orientation
+        roi.center = transformed_pose.pose.position
+        roi.orientation = transformed_pose.pose.orientation
         roi.header.frame_id = target_frame
         return roi
 
