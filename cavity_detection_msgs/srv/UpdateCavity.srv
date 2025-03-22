@@ -1,0 +1,7 @@
+string roi_id
+string cavity_id
+float32 y_offset
+float32 width
+bool status
+---
+bool success

@@ -1,0 +1,9 @@
+std_msgs/Header header
+int32 roi_type
+geometry_msgs/Point origin
+geometry_msgs/Quaternion orientation
+float32 length
+float32 width
+float32 depth
+int32 num_cavities
+float32 cavity_width

@@ -1,0 +1,4 @@
+geometry_msgs/Pose robot_pose
+---
+geometry_msgs/Pose cavity_pose
+string cavity_id
