@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
-from cavity_detection_msgs.msg import Roi
+from cavity_detection_msgs.msg import Roi, RoiStamped
 import tf.transformations
 import tf
 import uuid
@@ -80,7 +80,7 @@ class Observation:
         self.num_cavities = num_cavities
         self.cavity_width = cavity_width
 
-    def is_overlapping(self, roi:Roi):
+    def is_overlapping(self, roi:RoiStamped):
 
         def get_bounding_box(roi):
 

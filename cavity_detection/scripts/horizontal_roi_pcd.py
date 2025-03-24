@@ -121,6 +121,7 @@ def detect(event):
             depth_image = depth_image / 1000.
             depth_image = cv2.GaussianBlur(depth_image, (7, 7), 5)
             H, W = rgb_image.shape[:2]
+            
             bottom = [0, H//2, W, H]
             # convert all pixels in the rectangle to 3d
             x, y = np.meshgrid(range(bottom[0], bottom[2]), range(bottom[1], bottom[3]))

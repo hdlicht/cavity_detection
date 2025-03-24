@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 import threading
 from ransac import ransac_plane_fitting
-from cavity_detection_msgs.msg import Roi
+from cavity_detection_msgs.msg import RoiStamped
 from geometry_msgs.msg import Point, Quaternion
 from visualization_msgs.msg import Marker
 import time
@@ -95,7 +95,7 @@ def get_3d_points(depth_image, points_2d):
     return points_3d[valid]
 
 def detect(depth_image, time_stamp):
-    
+    ct = 0
     """Periodically process the fusion of RGB and Depth images."""
     global pub, models, calibration_count, average_model, runtimes
     start_time = time.time()
@@ -108,7 +108,6 @@ def detect(depth_image, time_stamp):
     x, y = np.meshgrid(range(bottom[0], bottom[2]), range(bottom[1], bottom[3]))
     points_2d = np.vstack([x.ravel(), y.ravel()]).T
     points = get_3d_points(depth_image, points_2d)
-
     # Transform the points to the world frame
     points = np.hstack((points, np.ones((points.shape[0], 1))))
     points = np.dot(T_camera_world, points.T).T
@@ -127,14 +126,12 @@ def detect(depth_image, time_stamp):
     if calibration_count == 10:
         average_model = np.array(models).mean(axis=0)
         a, b, c, d = average_model
-        print(f"Calibration done. Plane model: {a}x + {b}y + {c}z + {d} = 0")
         calibration_count += 1
         if np.dot(np.array([a, b, c]), GROUND_NORMAL) > 0.95:
             print(f"Calibration done. Plane model: {a}x + {b}y + {c}z + {d} = 0")
             calibration_count += 1
         else:
             print("Calibration failed")
-            print(a, b, c, d)
             calibration_count = 0
             models = []
             return
@@ -149,112 +146,91 @@ def detect(depth_image, time_stamp):
     # find the plane parralel to the ground with the most inliers
     for delta_d in np.linspace(.1, .6, 50):
         new_d = delta_d
-        distances = np.abs(a * points[:, 0] + b * points[:, 1] + c * points[:, 2] - new_d)
+        deviation = np.abs(a * points[:, 0] + b * points[:, 1] + c * points[:, 2] - new_d)
         # Identify inliers based on the distance threshold
-        inlier_indices = np.where(distances < 0.0127)[0]
+        inlier_indices = np.where(deviation < 0.0127)[0]
         if len(inlier_indices) > best_count:
             best_count = len(inlier_indices)
             best_inliers = inlier_indices
             best_d = delta_d
 
-    # print(f"Best d: {best_d}")
     if len(best_inliers) < 10:
         return
-    
+
     xy = points[best_inliers]
     xy = xy - min_xyz
     W = int(max(xy[:, 0])*100)
     H = int(max(xy[:, 1])*100)
 
-    # Show the inliers on a blank image
-    blank = np.zeros((H, W), dtype=np.uint8)
+    # Inlier points should be tops of cavities
+    tops_2d = np.zeros((H, W), dtype=np.uint8)
     for x, y, _ in xy:
-        blank[int(y*100)-1, int(x*100)-1] = 255
-    blank = cv2.dilate(blank, None, iterations=2)
-    blank = cv2.erode(blank, None, iterations=1)
+        tops_2d[int(y*100)-1, int(x*100)-1] = 255
+    tops_2d = cv2.dilate(tops_2d, None, iterations=2)
+    tops_2d = cv2.erode(tops_2d, None, iterations=1)
 
     # Find lines in the image
-    lines = cv2.HoughLinesP(blank, 1, np.pi/180, 100, minLineLength=70, maxLineGap=20)
-    if lines is None:
+    all_lines = cv2.HoughLinesP(tops_2d, 1, np.pi/180, 100, minLineLength=70, maxLineGap=20)
+    if all_lines is None:
         return
-    lines = lines.flatten().reshape(-1, 4)
-    new_lines = normalize_lines(lines)
-    slopes = (new_lines[:, 3] - new_lines[:, 1]) / (new_lines[:, 2] - new_lines[:, 0])
-    angles = [atan2(line[3] - line[1], line[2] - line[0]) for line in new_lines]
-    angles = np.array(angles)
-    # cluster the new lines based on the slope
-    clustering = DBSCAN(eps=.1, min_samples=3).fit(angles.reshape(-1, 1))
-    labels = clustering.labels_
+    all_lines = all_lines.flatten().reshape(-1, 4)
+    all_lines_normalized = normalize_lines(all_lines)
+    line_angles = np.arctan2(all_lines_normalized[:, 3] - all_lines_normalized[:, 1], all_lines_normalized[:, 2] - all_lines_normalized[:, 0])
+
+    # cluster the lines based on slope to find parallel sets
+    angle_clustering = DBSCAN(eps=.1, min_samples=3).fit(line_angles.reshape(-1, 1))
+    labels = angle_clustering.labels_
     unique_labels = np.unique(labels)
     orientation = 0
-
     for i, label in enumerate(unique_labels):
-        color = (randint(0, 255), randint(0, 255), randint(0, 255))
-        if label == -1:
-            continue
         indices = np.where(labels == label)[0]
-        if len(indices) < 3:
+        color = (randint(0, 255), randint(0, 255), randint(0, 255))
+        if label == -1 or len(indices) < 3:
             continue
-        print(indices)
         try:
-            lines = new_lines[indices]
+            parallel_lines = all_lines_normalized[indices]
+            average_orientation = np.mean(line_angles[indices])
         except TypeError:
-            print('type thing')
+            print('Type Error, skipping')
             continue
-        average_slope = np.mean(slopes[indices])
-        p1 = lines[:,:2]
+
+        # Transform the parralel lines by the average orientation to make them horizontal
+        transformed_parallel_lines = np.zeros_like(parallel_lines)
+        transformed_parallel_lines[:, :2] = np.array([transform_2d((x, y), (0, 0), -average_orientation) for x, y in parallel_lines[:, :2]])
+        transformed_parallel_lines[:, 2:4] = np.array([transform_2d((x, y), (0, 0), -average_orientation) for x, y in parallel_lines[:, 2:4]])
+        transformed_midpoints = (transformed_parallel_lines[:, :2] + transformed_parallel_lines[:, 2:4]) / 2
         # Use clustering to group collinear lines and reduce output
-        clustering = DBSCAN(eps=20, min_samples=1).fit(p1)
-        labels = clustering.labels_
+        colinear_clustering = DBSCAN(eps=10, min_samples=1).fit(transformed_midpoints[:, 1].reshape(-1, 1))
+        labels = colinear_clustering.labels_
         unique_labels = np.unique(labels)
-        blank = cv2.cvtColor(blank, cv2.COLOR_GRAY2BGR)
-        new_lines = []
+        transformed_reduced_lines = []
         for i, label in enumerate(unique_labels):
-            if label == -1:
+            indices = np.where(labels == label)[0]
+            if label == -1 or len(indices) == 0:
                 continue
             indices = np.where(labels == label)[0]
-            cluster_lines = lines[indices]
-            min_x = np.min(cluster_lines[:, 0])
-            max_x = np.max(cluster_lines[:, 2])
-            min_y = np.min(cluster_lines[:, 1])
-            max_y = np.max(cluster_lines[:, 3])
-            new_lines.append([min_x, min_y, max_x, max_y])
-        if len(new_lines) == 0:
-            print("bye")
+            transformed_colinear_lines = transformed_parallel_lines[indices]
+            min_x = np.min(transformed_colinear_lines[:, 0])
+            max_x = np.max(transformed_colinear_lines[:, 2])
+            avg_y = np.mean((transformed_colinear_lines[:, 1] + transformed_colinear_lines[:, 3]) / 2)
+            # min_y = np.min(colinear_lines[:, 1])
+            # max_y = np.max(colinear_lines[:, 3])
+            transformed_reduced_lines.append([min_x, avg_y, max_x, avg_y])
+
+        if len(transformed_reduced_lines) == 0:
             return
-        cluster_lines = np.array(new_lines)
         
-        # sort the lines by x1
-        cluster_lines = cluster_lines[np.argsort(cluster_lines[:, 0])]
-        # find midpoints of first line
-        midpoints = (cluster_lines[:, :2] + cluster_lines[:, 2:]) / 2
-        # draw a line that is perpendicular to the slope of the lines and passes through the midpoint
-        perp_slope = -1 / average_slope
-        # calculate the y-intercept
-        intercept = midpoints[0, 1] - perp_slope * midpoints[0, 0]
-        # calculate intersections of the perpendicular line with each clusterline
-        intersections = np.zeros((len(cluster_lines), 2))
-        for j, line in enumerate(cluster_lines):
-            x1, y1, x2, y2 = line
-            m = (y2 - y1) / (x2 - x1)
-            b = y1 - m * x1
-            x = (b - intercept) / (perp_slope - m)
-            y = perp_slope * x + intercept
-            intersections[j] = [x, y]
+        transformed_reduced_lines = np.array(transformed_reduced_lines) * 0.01
 
+        y_values = transformed_reduced_lines[:, 1]
+        distance_btwn_boards = np.diff(y_values, n=1)
+        length = np.max(np.abs(transformed_reduced_lines[:, 2] - transformed_reduced_lines[:, 0]))
+        width = np.sum(distance_btwn_boards)
         # convert to real world coordinates
-
-        cluster_lines = cluster_lines * 0.01
-        distances = distances * 0.01
-        offset = np.array([min_xyz[0], min_xyz[1], min_xyz[0], min_xyz[1]]).reshape(1, 4)
-        cluster_lines = cluster_lines + offset
-        lengths = np.sqrt(np.sum((cluster_lines[:, :2] - cluster_lines[:, 2:])**2, axis=1))
-        length = np.max(lengths)
-        width = np.sum(distances)
-        orientation = np.arctan(average_slope)              
-        center = np.mean(cluster_lines.reshape(-1,2), axis=0)
-        origin = (-length/2, -width/2)
-        origin = transform_2d(origin, center, orientation)
+        orientation = average_orientation              
+        transformed_origin = (np.min(transformed_reduced_lines[:, 0]), np.min(transformed_reduced_lines[:, 1]))
+        origin = transform_2d(transformed_origin, (0, 0), average_orientation) 
+        origin = (origin[0]+min_xyz[0], origin[1]+min_xyz[1])
 
         # publish lines as markers for debugging
 
@@ -272,7 +248,10 @@ def detect(depth_image, time_stamp):
         marker.color.b = 0.0
         marker.color.a = 1.0  # Fully opaque
 
-        for line in cluster_lines:
+        reduced_lines = np.zeros_like(transformed_reduced_lines)
+        reduced_lines[:, :2] = np.array([transform_2d((x, y), (0, 0), average_orientation) for x, y in transformed_reduced_lines[:, :2]])
+        reduced_lines[:, 2:4] = np.array([transform_2d((x, y), (0, 0), average_orientation) for x, y in transformed_reduced_lines[:, 2:4]])
+        for line in reduced_lines:
             p1 = Point(x=line[0], y=line[1], z=0.5)
             p2 = Point(x=line[2], y=line[3], z=0.5)
             marker.points.append(p1)
@@ -280,23 +259,22 @@ def detect(depth_image, time_stamp):
         
         pub2.publish(marker)
 
-        msg = Roi()
+        msg = RoiStamped()
         msg.header.frame_id = "base_footprint"
         msg.header.stamp = time_stamp
         msg.roi_type = 0
-        msg.origin = Point(origin[0], origin[1], 0)
-        msg.orientation = Quaternion(x=0, y=0, z=np.sin(orientation/2), w=np.cos(orientation/2))
-        msg.length = np.max(lengths)
-        msg.width = np.sum(distances)
+        msg.pose.position = Point(origin[0], origin[1], 0)
+        msg.pose.orientation = Quaternion(x=0, y=0, z=np.sin(orientation/2), w=np.cos(orientation/2))
+        msg.length = length
+        msg.width = width
         msg.depth = best_d
-        msg.num_cavities = len(distances)
-        msg.cavity_width = np.median(distances)
-        print("publishing")
+        msg.num_cavities = len(distance_btwn_boards)
+        msg.cavity_width = np.median(distance_btwn_boards)
         pub.publish(msg)
 
     end_time = time.time()
     runtimes.append(end_time-start_time)
-    if len(runtimes) == 100:
+    if len(runtimes) == 10:
         print(f"average runtime: {np.mean(runtimes)}")
         runtimes = []
 
@@ -316,7 +294,7 @@ if __name__ == "__main__":
     depth_topic = "/camera/aligned_depth_to_color/image_raw"
 #    rospy.Subscriber(video_topic, Image, rgb_callback, queue_size=2)
     rospy.Subscriber(depth_topic, Image, depth_callback, queue_size=2)
-    pub = rospy.Publisher('/horiz_roi', Roi, queue_size=2)
+    pub = rospy.Publisher('/horiz_roi', RoiStamped, queue_size=2)
     pub2 = rospy.Publisher('/lines', Marker, queue_size=2)
 
     rospy.spin()

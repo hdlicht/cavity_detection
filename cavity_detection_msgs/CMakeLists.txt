@@ -51,12 +51,13 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   Roi.msg
+  RoiStamped.msg
 )
 
 # Generate services in the 'srv' folder
 add_service_files(
   FILES
-  GetNearestCavity.srv
+  GetNearestRoi.srv
   UpdateRoi.srv
   AddCavity.srv
   UpdateCavity.srv

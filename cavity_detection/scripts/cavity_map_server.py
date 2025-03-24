@@ -2,14 +2,14 @@
 
 import rospy
 import numpy as np
-from cavity_detection_msgs.msg import Roi
-from cavity_detection_msgs.srv import UpdateRoi, UpdateRoiResponse, GetNearestCavity, GetNearestCavityResponse, AddCavity, AddCavityResponse, UpdateCavity, UpdateCavityResponse
+from cavity_detection_msgs.msg import Roi, RoiStamped
+from cavity_detection_msgs.srv import UpdateRoi, UpdateRoiResponse, GetNearestRoi, GetNearestRoiResponse, AddCavity, AddCavityResponse, UpdateCavity, UpdateCavityResponse
 import tf.transformations
 from visualization_msgs.msg import MarkerArray
 from visualization_msgs.msg import Marker
 import tf
 import tf2_ros
-from geometry_msgs.msg import Vector3, Quaternion, TransformStamped, PoseStamped, Pose
+from geometry_msgs.msg import Vector3, Quaternion, TransformStamped, PoseStamped, Pose, Point
 import tf2_geometry_msgs
 from tf2_geometry_msgs import do_transform_pose
 from scipy.spatial.transform import Rotation
@@ -27,13 +27,13 @@ class CavityMap:
         self.horiz_cavities = {}
         self.vert_cavities = {}
         rospy.init_node('cavity_map', anonymous=True)
-        rospy.Subscriber('/horiz_roi', Roi, self.horiz_callback)
-        rospy.Subscriber('/vert_roi', Roi, self.vert_callback)
+        rospy.Subscriber('/horiz_roi', RoiStamped, self.horiz_callback)
+        rospy.Subscriber('/vert_roi', RoiStamped, self.vert_callback)
         # Subscribe to the tf of the camera in map frame
         self.tf_listener = tf.TransformListener()
         self.tf_pub = tf2_ros.TransformBroadcaster()
         self.marker_pub = rospy.Publisher('/rois', MarkerArray, queue_size=2)
-        self.s1 = rospy.Service('get_nearest_cavity', GetNearestCavity, self.handle_get_nearest_cavity)
+        self.s1 = rospy.Service('get_nearest_roi', GetNearestRoi, self.handle_get_nearest_roi)
         self.s2 = rospy.Service('update_roi', UpdateRoi, self.handle_update_roi)
         self.s3 = rospy.Service('add_cavity', AddCavity, self.handle_add_cavity)
         self.s4 = rospy.Service('update_cavity', UpdateCavity, self.handle_update_cavity)
@@ -41,11 +41,9 @@ class CavityMap:
         self.open_cavities = []
 
     def horiz_callback(self, msg):
-        print("got one")
         updated = False
-        observation_angle = np.array([msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w])
-        observation_distance = np.linalg.norm(np.array([msg.origin.x, msg.origin.y, msg.origin.z]))
-        # publish_temporal(msg)
+        observation_angle = np.array([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])
+        observation_distance = np.linalg.norm(np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z]))
         try:
             pos, quat = self.tf_listener.lookupTransform("map", msg.header.frame_id, rospy.Time(0))
             transform_stamped = TransformStamped()
@@ -54,7 +52,7 @@ class CavityMap:
             transform_stamped.child_frame_id = 'map'
             transform_stamped.header = msg.header
             transformed_msg = self.transform_roi(msg, "map", transform_stamped)
-            observation = Observation(transformed_msg.origin, transformed_msg.orientation, 
+            observation = Observation(transformed_msg.pose.position, transformed_msg.pose.orientation, 
                                     transformed_msg.length, transformed_msg.width, 
                                     transformed_msg.depth, observation_distance, observation_angle, transformed_msg.num_cavities, transformed_msg.cavity_width)
             for i, roi in enumerate(self.horiz_cavities.values()):
@@ -76,9 +74,8 @@ class CavityMap:
 
     def vert_callback(self, msg):
         updated = False
-        observation_angle = np.array([msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w])
-        observation_distance = np.linalg.norm(np.array([msg.origin.x, msg.origin.y, msg.origin.z]))
-        # publish_temporal(msg)
+        observation_angle = np.array([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])
+        observation_distance = np.linalg.norm(np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z]))
         try:
             pos, quat = self.tf_listener.lookupTransform("map", msg.header.frame_id, rospy.Time(0))
             
@@ -88,18 +85,18 @@ class CavityMap:
             transform_stamped.child_frame_id = 'map'
             transform_stamped.header = msg.header
             transformed_msg = self.transform_roi(msg, "map", transform_stamped)
-            observation = Observation(transformed_msg.origin, transformed_msg.orientation, WALL_DEPTH, transformed_msg.width, transformed_msg.depth, observation_distance, observation_angle)
+            observation = Observation(transformed_msg.pose.position, transformed_msg.pose.orientation, WALL_DEPTH, transformed_msg.width, transformed_msg.depth, observation_distance, observation_angle)
             for i, roi in enumerate(self.horiz_cavities):
                 if observation.is_overlapping(roi):
                     roi.add_observation(observation)
                     updated = True
-                    #print(f"Updated cavity {roi.id}")
+                    print(f"Updated cavity {roi.id}")
                     break
             if not updated:
                 roi_id = f'roi_{len(self.vert_cavities)}'
                 new_roi = RegionOfInterest(roi_id, 1, observation)
                 self.horiz_cavities[roi_id] = new_roi
-                #print(f"Added new cavity {roi_id}")
+                print(f"Added new cavity {roi_id}")
 
             self.make_tree()
 
@@ -135,23 +132,20 @@ class CavityMap:
 
         self.tf_pub.sendTransform(transform_list)
 
-        publish_all(self.marker_pub, self.horiz_cavities)
-
-        
+        publish_all(self.marker_pub, self.horiz_cavities.values())
     
     def make_tree(self):
         self.open_cavities = []
         for roi in self.horiz_cavities.values():
             self.open_cavities.append(roi)
-        self.kd_tree = KDTree([roi.origin[:2] for cavity in self.open_cavities])
+        self.kd_tree = KDTree([roi.origin[:2] for roi in self.open_cavities])
 
     def transform_roi(self, roi, target_frame, transform):
         
         # Create a PoseStamped for the orientation.
         # The position here is arbitrary since we only care about the orientation.
         pose = PoseStamped()
-        pose.pose.position = roi.origin
-        pose.pose.orientation = roi.orientation
+        pose.pose = roi.pose
         pose.header = roi.header
         pose.header.stamp = rospy.Time(0)
         
@@ -159,33 +153,32 @@ class CavityMap:
         transformed_pose = do_transform_pose(pose, transform)
         
         # Update the roi with the transformed data
-        roi.origin = transformed_pose.pose.position
-        roi.orientation = transformed_pose.pose.orientation
+        roi.pose = transformed_pose.pose
         roi.header.frame_id = target_frame
         return roi
 
     # def publish_markers(self, event):
     #     publish_all(self.pub, self.horiz_cavities, self.vert_cavities)
 
-    def handle_get_nearest_cavity(self, req):
-        print("entered handler")
+    def handle_get_nearest_roi(self, req):
         # Logic to handle the request and generate a response
+        robot_pos, _ = self.tf_listener.lookupTransform("map", "base_link", rospy.Time(0))
         if self.kd_tree is None:
             self.make_tree()
             print("made tree")
-        robot_xy = [req.robot_pose.position.x, req.robot_pose.position.y]
+        robot_xy = [robot_pos[0], robot_pos[1]]
         closest_index = self.kd_tree.query(robot_xy)[1]
-        cavity = self.open_cavities[closest_index]
-        response = GetNearestCavityResponse()
-        response.cavity_pose = Pose()
-        response.cavity_pose.position.x = cavity.origin[0]
-        response.cavity_pose.position.y = cavity.origin[1]
-        response.cavity_pose.position.z = cavity.depth
-        response.cavity_pose.orientation.x = cavity.orientation[0]
-        response.cavity_pose.orientation.y = cavity.orientation[1]
-        response.cavity_pose.orientation.z = cavity.orientation[2]
-        response.cavity_pose.orientation.w = cavity.orientation[3]
-        response.cavity_id = cavity.id
+        closest_roi = self.open_cavities[closest_index]
+        response = GetNearestRoiResponse()
+        response.roi = Roi()
+        response.roi.pose.position = Point(x=closest_roi.origin[0], y=closest_roi.origin[1], z=0)
+        print(f"Closest ROI position: {response.roi.pose.position}")
+        response.roi.pose.orientation = Quaternion(x=closest_roi.orientation[0], y=closest_roi.orientation[1], z=closest_roi.orientation[2], w=closest_roi.orientation[3])
+        response.roi.length = closest_roi.length
+        response.roi.width = closest_roi.width
+        response.roi.depth = closest_roi.depth
+        response.roi.num_cavities = closest_roi.num_cavities
+        response.roi.cavity_width = closest_roi.cavity_width
         return response
 
     def handle_update_roi(self, req):

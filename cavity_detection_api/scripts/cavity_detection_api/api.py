@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 
 import rospy
-from cavity_detection_msgs.srv import GetNearestCavity, UpdateRoi, UpdateRoiRequest, AddCavity, AddCavityRequest, UpdateCavity, UpdateCavityRequest
+from cavity_detection_msgs.srv import GetNearestRoi, UpdateRoi, UpdateRoiRequest, AddCavity, AddCavityRequest, UpdateCavity, UpdateCavityRequest
 from geometry_msgs.msg import Pose, Point, Quaternion
+from cavity_detection_msgs.msg import Roi, RoiStamped
 
-def get_nearest_cavity(robot_pose):
+def get_nearest_cavity():
     rospy.wait_for_service('get_nearest_cavity')
     print("done waiting")
     try:
-        get_nearest_cavity = rospy.ServiceProxy('get_nearest_cavity', GetNearestCavity)
-        resp = get_nearest_cavity(robot_pose)
+        get_nearest_roi = rospy.ServiceProxy('get_nearest_roi', GetNearestRoi)
+        req = GetNearestRoi()
+        resp = get_nearest_roi(req)
 
-        rospy.loginfo(f"Nearest cavity ID: {resp.cavity_id}, Pose: {resp.cavity_pose}")
-        return resp.cavity_id, resp.cavity_pose
+        rospy.loginfo(f"Nearest cavity ID: {resp.roi.id}, Pose: {resp.roi.pose}")
+        return resp.roi
     except rospy.ServiceException as e:
         rospy.logerr(f"Service call failed: {e}")
 

@@ -93,7 +93,7 @@ def get_3d_points(depth_image, points_2d):
     return points_3d[valid]
 
 def detect(event):
-    
+    print("Detecting...")
     """Periodically process the fusion of RGB and Depth images."""
     global data_buffer, buffer_lock, pub, models, calibration_count, average_model, runtimes
     start_time = time.time()

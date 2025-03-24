@@ -8,18 +8,8 @@ from geometry_msgs.msg import Pose, Point, Quaternion
 def main():
     rospy.init_node('cavity_client_node')
 
-    # Example robot pose for testing
-    robot_pose = Pose()
-    robot_pose.position.x = 1.0
-    robot_pose.position.y = 2.0
-    robot_pose.position.z = 0.0
-    robot_pose.orientation.x = 0.0
-    robot_pose.orientation.y = 0.0
-    robot_pose.orientation.z = 0.0
-    robot_pose.orientation.w = 1.0
-
     # Test get_nearest_cavity service
-    roi_id, roi_pose = get_nearest_cavity(robot_pose)
+    roi_id, roi_pose = get_nearest_cavity()
 
     # Example ROI pose for testing
     new_roi_pose = Pose()
