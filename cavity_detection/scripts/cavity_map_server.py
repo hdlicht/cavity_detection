@@ -56,7 +56,7 @@ class CavityMap:
                                     transformed_msg.length, transformed_msg.width, 
                                     transformed_msg.depth, observation_distance, observation_angle, transformed_msg.num_cavities, transformed_msg.cavity_width)
             for i, roi in enumerate(self.horiz_cavities.values()):
-                if observation.is_overlapping(roi):
+                if roi.is_overlapping(observation):
                     roi.add_observation(observation)
                     updated = True
                     #print(f"Updated cavity {roi.id}")

@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 import threading
 from ransac import ransac_plane_fitting
-from cavity_detection_msgs.msg import Roi
+from cavity_detection_msgs.msg import Roi, RoiStamped
 from geometry_msgs.msg import Point, Quaternion
 from visualization_msgs.msg import Marker
 import open3d as o3d
@@ -336,7 +336,7 @@ def detect(event):
                 
                 pub2.publish(marker)
 
-                msg = Roi()
+                msg = RoiStamped()
                 msg.header.frame_id = "base_footprint"
                 msg.header.stamp = time_stamp
                 msg.roi_type = 0

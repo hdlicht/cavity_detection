@@ -88,7 +88,7 @@ def get_depth(depth_image, x, y):
 def get_3d_points(depth_image, points_2d):
     """Get the 3D points for an array of 2D pixels using the depth image."""
     zs = depth_image[points_2d[:, 1], points_2d[:, 0]]
-    valid = zs > 0  # Filter out invalid depth values
+    valid = np.logical_and(zs > 0, zs < 5) # Filter out invalid depth values
     xs = (points_2d[:, 0] - K_rgb[0, 2]) / K_rgb[0, 0] * zs
     ys = (points_2d[:, 1] - K_rgb[1, 2]) / K_rgb[1, 1] * zs
     points_3d = np.vstack((xs, ys, zs)).T
@@ -104,6 +104,7 @@ def detect(depth_image, time_stamp):
     depth_image = depth_image / 1000.
     H, W = depth_image.shape[:2]
     bottom = [0, H//2, W, H]
+    #bottom = [0, 0, W, H//2]
     # convert all pixels in the rectangle to 3d
     x, y = np.meshgrid(range(bottom[0], bottom[2]), range(bottom[1], bottom[3]))
     points_2d = np.vstack([x.ravel(), y.ravel()]).T
@@ -113,29 +114,29 @@ def detect(depth_image, time_stamp):
     points = np.dot(T_camera_world, points.T).T
     points = points[:, :3]
 
-    min_xyz = np.nanmin(points, axis=0)
+    min_xyz = None
     # print(f"Min XYZ: {min_xyz}")
 
-    if calibration_count < 10:
-        # Fit a plane to the points with RANSAC
-        plane_model, inliers = ransac_plane_fitting(points, threshold=0.01, iterations=100)
-        models.append(plane_model)
-        calibration_count += 1
-        return
+    # if calibration_count < 10:
+    #     # Fit a plane to the points with RANSAC
+    #     plane_model, inliers = ransac_plane_fitting(points, threshold=0.01, iterations=100)
+    #     models.append(plane_model)
+    #     calibration_count += 1
+    #     return
     
-    if calibration_count == 10:
-        average_model = np.array(models).mean(axis=0)
-        a, b, c, d = average_model
-        calibration_count += 1
-        if np.dot(np.array([a, b, c]), GROUND_NORMAL) > 0.95:
-            print(f"Calibration done. Plane model: {a}x + {b}y + {c}z + {d} = 0")
-            calibration_count += 1
-        else:
-            print("Calibration failed")
-            calibration_count = 0
-            models = []
-            return
-
+    # if calibration_count == 10:
+    #     average_model = np.array(models).mean(axis=0)
+    #     a, b, c, d = average_model
+    #     calibration_count += 1
+    #     if np.dot(np.array([a, b, c]), GROUND_NORMAL) > 0.95:
+    #         print(f"Calibration done. Plane model: {a}x + {b}y + {c}z + {d} = 0")
+    #         calibration_count += 1
+    #     else:
+    #         print("Calibration failed")
+    #         calibration_count = 0
+    #         models = []
+    #         return
+    average_model = [0,0,1,-0.05]
     a, b, c, d = average_model
 
     # Calculate distances of all points to the new plane
@@ -144,7 +145,7 @@ def detect(depth_image, time_stamp):
     best_d = 0
 
     # find the plane parralel to the ground with the most inliers
-    for delta_d in np.linspace(.1, .6, 50):
+    for delta_d in np.linspace(.1, .6, 20):
         new_d = delta_d
         deviation = np.abs(a * points[:, 0] + b * points[:, 1] + c * points[:, 2] - new_d)
         # Identify inliers based on the distance threshold
@@ -156,12 +157,13 @@ def detect(depth_image, time_stamp):
 
     if len(best_inliers) < 10:
         return
-
+    
+    #xy = points[np.logical_and(points[:,2]>0.1, points[:,2]<0.5)]
     xy = points[best_inliers]
+    min_xyz = np.nanmin(xy, axis=0)
     xy = xy - min_xyz
     W = int(max(xy[:, 0])*100)
     H = int(max(xy[:, 1])*100)
-
     # Inlier points should be tops of cavities
     tops_2d = np.zeros((H, W), dtype=np.uint8)
     for x, y, _ in xy:
@@ -189,7 +191,7 @@ def detect(depth_image, time_stamp):
             continue
         try:
             parallel_lines = all_lines_normalized[indices]
-            average_orientation = np.mean(line_angles[indices])
+            average_orientation = np.nanmean(line_angles[indices])
         except TypeError:
             print('Type Error, skipping')
             continue
@@ -212,7 +214,7 @@ def detect(depth_image, time_stamp):
             transformed_colinear_lines = transformed_parallel_lines[indices]
             min_x = np.min(transformed_colinear_lines[:, 0])
             max_x = np.max(transformed_colinear_lines[:, 2])
-            avg_y = np.mean((transformed_colinear_lines[:, 1] + transformed_colinear_lines[:, 3]) / 2)
+            avg_y = np.nanmean((transformed_colinear_lines[:, 1] + transformed_colinear_lines[:, 3]) / 2)
             # min_y = np.min(colinear_lines[:, 1])
             # max_y = np.max(colinear_lines[:, 3])
             transformed_reduced_lines.append([min_x, avg_y, max_x, avg_y])
@@ -251,9 +253,18 @@ def detect(depth_image, time_stamp):
         reduced_lines = np.zeros_like(transformed_reduced_lines)
         reduced_lines[:, :2] = np.array([transform_2d((x, y), (0, 0), average_orientation) for x, y in transformed_reduced_lines[:, :2]])
         reduced_lines[:, 2:4] = np.array([transform_2d((x, y), (0, 0), average_orientation) for x, y in transformed_reduced_lines[:, 2:4]])
+        
+        for line in transformed_reduced_lines:
+            p1 = (int(line[0]*100), int(line[1]*100))
+            p2 = (int(line[2]*100), int(line[3]*100))
+            cv2.line(tops_2d, p1, p2, color=(0, 255, 0), thickness=2)
+
+        ros_image = bridge.cv2_to_imgmsg(tops_2d)
+        pub3.publish(ros_image)
+
         for line in reduced_lines:
-            p1 = Point(x=line[0], y=line[1], z=0.5)
-            p2 = Point(x=line[2], y=line[3], z=0.5)
+            p1 = Point(x=line[0] + min_xyz[0], y=line[1] + min_xyz[1], z=best_d)
+            p2 = Point(x=line[2] + min_xyz[0], y=line[3] + min_xyz[1], z=best_d)
             marker.points.append(p1)
             marker.points.append(p2)
         
@@ -267,7 +278,7 @@ def detect(depth_image, time_stamp):
         msg.pose.orientation = Quaternion(x=0, y=0, z=np.sin(orientation/2), w=np.cos(orientation/2))
         msg.length = length
         msg.width = width
-        msg.depth = best_d
+        msg.depth = 0.2
         msg.num_cavities = len(distance_btwn_boards)
         msg.cavity_width = np.median(distance_btwn_boards)
         pub.publish(msg)
@@ -275,7 +286,7 @@ def detect(depth_image, time_stamp):
     end_time = time.time()
     runtimes.append(end_time-start_time)
     if len(runtimes) == 10:
-        print(f"average runtime: {np.mean(runtimes)}")
+        print(f"average runtime: {np.nanmean(runtimes)}")
         runtimes = []
 
 def depth_callback(msg):
@@ -296,5 +307,6 @@ if __name__ == "__main__":
     rospy.Subscriber(depth_topic, Image, depth_callback, queue_size=2)
     pub = rospy.Publisher('/horiz_roi', RoiStamped, queue_size=2)
     pub2 = rospy.Publisher('/lines', Marker, queue_size=2)
+    pub3 = rospy.Publisher('/cavity_detection/depth_points_2d', Image, queue_size=2)
 
     rospy.spin()
