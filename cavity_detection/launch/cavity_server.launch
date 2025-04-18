@@ -1,0 +1,11 @@
+<launch>
+    <!-- Launch cavity_map node -->
+    <node name="cavity_map" pkg="cavity_detection" type="cavity_map_server_2.py" output="screen">
+        <!-- <param name="param_name" value="param_value" /> -->
+    </node>
+
+    <!-- Launch map_loop node -->
+    <node name="map_maker_node" pkg="cavity_detection" type="map_maker.py" output="screen">
+        <!-- <param name="param_name" value="param_value" /> -->
+    </node>
+</launch>

@@ -13,7 +13,7 @@ import math
 from matplotlib.path import Path
 from scipy.spatial.transform import Rotation
 from cavity_detection.ransac import ransac_line_fitting
-from cavity_detection_msgs.msg import VerticalObservation
+from cavity_detection_msgs.msg import VerticalObservation, LogoObservation
 from cavity_detection.rviz import vert_detector_markers
 from tf.transformations import euler_from_quaternion
 import copy
@@ -58,14 +58,28 @@ def transform_3d(points, trans, quat):
 def get_ray_directions(points, downsample=1):
     """Get the 3D points for an array of 2D pixels using the depth image."""
     pixels = np.arange(640)
-    angles = np.arctan2((pixels - cx), fx)  # Calculate angles in radians
-    angles = -angles
-    increment = np.ones_like(pixels)
+    angles = -1*np.arctan2((pixels - cx), fx)  # Calculate angles in radians
+    increment = -1*np.ones_like(pixels)
     for point in points:
-        increment[np.logical_and(pixels>point[0], pixels<point[2])] = -1
+        increment[np.logical_and(pixels>point[0], pixels<point[2])] = 1
     angles = angles[downsample::downsample]
     increment = increment[downsample::downsample]
     return angles, increment
+
+def get_endpoint_rays(points):
+    """Get the 3D points for an array of 2D pixels using the depth image."""
+    pixels = np.arange(640)
+    angle_pairs = []
+    valid = []
+    angles = -1*np.arctan2((pixels - cx), fx)  # Calculate angles in radians
+    for point in points:
+        a1 = angles[min(point[0], angles.shape[0]-1)] 
+        a2 = angles[min(point[2], angles.shape[0]-1)]
+        angle_pairs.append((a1, a2))
+        v1 = point[0] > 50
+        v2 = point[2] < 590
+        valid.append((v1, v2))
+    return angle_pairs, valid
 
 class MapMaker:
     def __init__(self):
@@ -92,8 +106,9 @@ class MapMaker:
 
         # --- Subscribers and Publishers ---
         self.occupancy_sub = rospy.Subscriber("/map", OccupancyGrid, self.occupancy_callback)
-        self.intpair_sub = rospy.Subscriber("/vert_roi", VerticalObservation, self.observation_callback)
+        self.intpair_sub = rospy.Subscriber("/vert_logo", LogoObservation, self.observation_callback)
         self.marker_pub = rospy.Publisher("/markers", MarkerArray, queue_size=1)
+        self.vert_roi_pub = rospy.Publisher("/vert_roi", VerticalObservation, queue_size=2)
         self.vert_grid_pub = rospy.Publisher("/vertical_roi_map", OccupancyGrid, queue_size=1)
         self.obs_grid_pub = rospy.Publisher("/time_in_view_map", OccupancyGrid, queue_size=1)
 
@@ -265,15 +280,20 @@ class MapMaker:
     def observation_callback(self, msg):
         points = np.array(msg.points)
         points = points.reshape(-1, 4)
-        pos, quat = self.tf_listener.lookupTransform("map", msg.header.frame_id, msg.header.stamp)
+        try:
+            pos, quat = self.tf_listener.lookupTransform("map", msg.header.frame_id, msg.header.stamp)
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+            rospy.logwarn("Transform lookup failed.")
+            return
         robot_heading = euler_from_quaternion(quat)[2]
         angles, increment = get_ray_directions(points)
-        
+        angle_pairs, valid = get_endpoint_rays(points)
         robot_x, robot_y = self.world_to_map(pos[0], pos[1])
 
         if robot_x is None or robot_y is None:
             rospy.logwarn("Invalid robot position for ray casting.")
             return
+        
         for i, angle in enumerate(angles):
             hit = self.ray_cast(robot_x, robot_y, robot_heading, angle)
             if hit is not None:
@@ -281,13 +301,33 @@ class MapMaker:
                 self.vert_grid_data[hit_my, hit_mx] = np.clip(self.obs_grid_data[hit_my, hit_mx] + increment[i], 0, 100)
             else:
                 rospy.logwarn("Logo detected but too far away from wall.")
-
+        
         viewed_cells_list = list(self.viewed_cells)
         for cell in viewed_cells_list:
             cell_y, cell_x = cell
-            self.obs_grid_data[cell_y, cell_x] = np.clip(self.obs_grid_data[cell_y, cell_x] + 1, 0, 100)
+            if cell_x < self.obs_grid_data.shape[1] and cell_y < self.obs_grid_data.shape[0]:
+                self.obs_grid_data[cell_y, cell_x] = np.clip(self.obs_grid_data[cell_y, cell_x] + 1, 0, 100)
 
+        for i, pair in enumerate(angle_pairs):
+            roi = VerticalObservation()
+            roi.header = msg.header
+            roi.header.frame_id = "map"
+            roi.header.stamp = rospy.Time.now()
+            map_cell_1 = self.ray_cast(robot_x, robot_y, robot_heading, pair[0])
+            my1, mx1 = map_cell_1
+            world_x1, world_y1 = self.map_to_world(mx1, my1)
+            map_cell_2 = self.ray_cast(robot_x, robot_y, robot_heading, pair[1])
+            my2, mx2 = map_cell_2
+            world_x2, world_y2 = self.map_to_world(mx2, my2)
+            orientation = np.arctan2(world_x2 - world_x1, world_y1 - world_y2)
+            roi.orientation = orientation
+            roi.p1 = [world_x1, world_y1] if valid[i][0] else [99., 99.]
+            roi.p2 = [world_x2, world_y2] if valid[i][1] else [99., 99.]
+            if valid[i][0] or valid[i][1]:
+                self.vert_roi_pub.publish(roi)
+                print(f"Published observation: {roi.p1} to {roi.p2} with orientation {roi.orientation}")
 
+            
 if __name__ == "__main__":
     node = MapMaker()
     rospy.Timer(rospy.Duration(1.0), node.publish_grids)

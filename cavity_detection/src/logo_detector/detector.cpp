@@ -2,7 +2,6 @@
 // Create by RangiLyu
 // 2020 / 10 / 2
 //
-
 #include "logo_detector/detector.h"
 #include <benchmark.h>
 // #include <iostream>

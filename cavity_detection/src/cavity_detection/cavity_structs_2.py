@@ -4,12 +4,14 @@ import numpy as np
 from filterpy.kalman import ExtendedKalmanFilter
 from filterpy.common import Q_discrete_white_noise
 import math
-from cavity_detection_msgs.msg import Roi, RoiStamped, HorizontalObservation
+from cavity_detection_msgs.msg import Roi, RoiStamped, HorizontalObservation, VerticalObservation
 from shapely.geometry import Polygon
 from cavity_detection.helpers import *
 import scipy
 
 verbose = False
+VERTICAL_POINT_THRESHOLD = 1
+VERTICAL_ORIENTATION_THRESHOLD = 0.1
 
 class HorizontalCluster:
     def __init__(self, id, initial_observation):
@@ -77,7 +79,7 @@ class HorizontalCluster:
         intersects = cluster_polygon.intersects(observation_polygon)
         length_difference = abs(self.length - observation.length)
         spacing_difference = abs(self.spacing - observation.spacing)
-        angle_difference = self.orientation - observation.spacing
+        angle_difference = self.orientation - observation.orientation
         orientation_difference = math.atan2(math.sin(angle_difference), math.cos(angle_difference)) 
         return intersects and length_difference < 1 and spacing_difference < 0.1 and orientation_difference < 1
     
@@ -93,7 +95,7 @@ class HorizontalCluster:
         est_midpoints = (est_segments[:,:2] + est_segments[:,2:]) / 2.0
         observed_midpoints = (observed_lines[:,:2] + observed_lines[:,2:]) / 2.0
         mutual_pairs, offsets_xy, no_match = mutual_nearest_neighbors(est_midpoints, observed_midpoints)
-        # Filter out pairs with large distances
+        # Filter out pairs with large distancesself.open_cavities.append
         threshold = 0.3
         valid_pairs = np.linalg.norm(offsets_xy, axis=1) < threshold
         # Inside boardwise_offset:
@@ -192,11 +194,64 @@ class HorizontalCavity:
 class VerticalCluster:
     def __init__(self, id, initial_observation):
         self.id = id
-        self.p1 = initial_observation.p1
-        self.p2 = initial_observation.p2
+        self.p1 = np.array(initial_observation.p1) if initial_observation.p1[0] != 99. else None
+        print(f"Initial p1: {self.p1}, dtype = {self.p1.dtype}")
+        self.p2 = np.array(initial_observation.p2) if initial_observation.p2[0] != 99. else None
+        print(f"Initial p2: {self.p2}, dtype = {self.p2.dtype}")
         self.orientation = initial_observation.orientation
+        self.num_observations = 1
         self.num_cavities = 0
         self.cavities = []
+    
+    @property
+    def width(self):
+        """ Returns the width of the cavity based on the estimated state """
+        if self.p1 is not None and self.p2 is not None:
+            return np.linalg.norm(np.array(self.p1) - np.array(self.p2))
+        else:
+            return 0.0
+    
+    @property
+    def length(self):
+        """ Returns the depth of the vertical cavity (hard coded, arbitrary)"""
+        return 0.1
+    
+    @property
+    def height(self):
+        """ Returns the height of the cavity (hard coded, arbitrary)"""
+        return 1.8
+    
+    @property
+    def anchor_point(self):
+        """ Returns the height of the cavity (hard coded, arbitrary)"""
+        return self.p2 if self.p2 is not None else self.p1
+
+    def is_overlapping(self, observation):
+        """ New overlapping check for vertical clusters """
+        print(f"Checking overlap with observation: {self.id}")
+        observed_p1 = np.array(observation.p1)
+        observed_p2 = np.array(observation.p2)
+        print(f"Observed points: {observed_p1}, {observed_p2}")
+        if self.p1 is None and not observation.p1[0] == 99.:
+            similar = np.linalg.norm(np.array(self.p2) - observed_p2) < VERTICAL_POINT_THRESHOLD and np.abs(self.orientation-observation.orientation) < VERTICAL_ORIENTATION_THRESHOLD
+        elif self.p2 is None and not observation.p2[0] == 99.:
+            similar = np.linalg.norm(np.array(self.p1) - observed_p1) < VERTICAL_POINT_THRESHOLD and np.abs(self.orientation-observation.orientation) < VERTICAL_ORIENTATION_THRESHOLD
+        else:
+            similar = np.linalg.norm(np.array(self.p1) - observed_p1) < VERTICAL_POINT_THRESHOLD and np.linalg.norm(self.p2 - observed_p2) < VERTICAL_POINT_THRESHOLD and np.abs(self.orientation-observation.orientation) < VERTICAL_ORIENTATION_THRESHOLD
+        return similar
+                
+    def add_observation(self, observation):
+        # Update the cluster with the new observation
+        if self.p1 is not None:
+            self.p1 = tuple(observation.p1)
+        else:
+            self.p1 = np.average([self.p1, observation.p1], weights=[self.num_observations, 1])
+        if self.p2 is not None:
+            self.p2 = tuple(observation.p2)
+        else:
+            self.p2 = np.average([self.p2, observation.p2], weights=[self.num_observations, 1])
+        self.orientation = np.average([self.orientation, observation.orientation], weights=[self.num_observations, 1])
+        self.num_observations += 1
 
 class VerticalCavity:
     def __init__(self, id, parent, front):

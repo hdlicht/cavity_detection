@@ -6,52 +6,37 @@
 #include <geometry_msgs/Point.h>
 #include <geometry_msgs/Quaternion.h>
 #include <cavity_detection_msgs/Roi.h>
-#include <cavity_detection_msgs/VerticalObservation.h>
+#include <cavity_detection_msgs/LogoObservation.h>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <tf/transform_listener.h>
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include "logo_detector/detector.h"  // Include your detector
+#include <ros/package.h>
+
+std::string base_path = ros::package::getPath("cavity_detection");
+std::string param_path = base_path + "/model/nanodet.param";
+std::string bin_path = base_path + "/model/nanodet.bin";
 
 // Global shared buffer
-cv::Mat rgb_image, depth_image;
+cv::Mat rgb_image;
 ros::Time time_stamp;
 std::mutex buffer_mutex;
-ros::Publisher pub2, vert_pub, image_pub;
+ros::Publisher vert_pub, image_pub;
 tf::TransformListener *tf_listener;
-NanoDet detector("/home/henry/robo/capstone/capstone_vision_ws/src/cavity_detection/cavity_detection/model/nanodet.param", 
-    "/home/henry/robo/capstone/capstone_vision_ws/src/cavity_detection/cavity_detection/model/nanodet.bin", false);
 
+// Initialize NanoDet detector
+NanoDet detector(param_path.c_str(), bin_path.c_str(), false);
 
 // Desired frequency (Hz)
-const double RUN_RATE = 10.0;
-
-// cv::Mat K_rgb = (cv::Mat_<double>(3, 3) << 570.342, 0.0, 314.5,
-//                                            0.0, 570.342, 235.5,
-//                                            0.0, 0.0, 1.0);
-
-cv::Mat K_rgb = (cv::Mat_<double>(3, 3) << 910.1, 0.0, 644.0,
-                                           0.0, 910.1, 370.7,
-                                           0.0, 0.0, 1.0);
-
-cv::Mat T_depth_rgb = (cv::Mat_<double>(4, 4) << 1, 0, 0, -0.025,
-                                                  0, 1, 0, 0,
-                                                  0, 0, 1, 0,
-                                                  0, 0, 0, 1);
-
-cv::Mat T_camera_world = (cv::Mat_<double>(4, 4) << 0, 0, 1, 0,
-                                                     -1, 0, 0, 0,
-                                                     0, -1, 0, 0.6069,
-                                                     0, 0, 0, 1);
-
-                                             
+const double RUN_RATE = 5.0;
+                            
 void rgb_callback(const sensor_msgs::ImageConstPtr &msg)
 {
     try
     {
         time_stamp = msg->header.stamp;
-        ROS_INFO_STREAM("Image timestamp: " << time_stamp);
         cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, "bgr8");
         std::lock_guard<std::mutex> lock(buffer_mutex);
         rgb_image = cv_ptr->image.clone();
@@ -61,20 +46,6 @@ void rgb_callback(const sensor_msgs::ImageConstPtr &msg)
         ROS_ERROR("Error in RGB callback: %s", e.what());
     }
 }
-
-// void depth_callback(const sensor_msgs::ImageConstPtr &msg)
-// {
-//     try
-//     {
-//         cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, "32FC1");
-//         std::lock_guard<std::mutex> lock(buffer_mutex);
-//         depth_image = cv_ptr->image.clone();
-//     }
-//     catch (cv_bridge::Exception &e)
-//     {
-//         ROS_ERROR("Error in Depth callback: %s", e.what());
-//     }
-// }
 
 bool compare_boxes(const BoxInfo &a, const BoxInfo &b) {
     return a.x1 < b.x1;
@@ -161,7 +132,7 @@ void process_fusion(const ros::TimerEvent &event)
     image_pub.publish(cv_bridge::CvImage(header, "bgr8", rgb_copy).toImageMsg());
 
     // Publish reduced detections
-    cavity_detection_msgs::VerticalObservation msg;
+    cavity_detection_msgs::LogoObservation msg;
     msg.header.frame_id = "camera_link";
     msg.header.stamp = time_stamp;
     for (const auto &box : detections)
@@ -180,9 +151,9 @@ int main(int argc, char **argv)
     ros::NodeHandle nh;
 
     // Subscribers
-    ros::Subscriber rgb_sub = nh.subscribe("/camera/rgb/image_raw", 10, rgb_callback);
+    ros::Subscriber rgb_sub = nh.subscribe("/camera/rgb/image_raw", 1, rgb_callback);
     // Publishers
-    vert_pub = nh.advertise<cavity_detection_msgs::VerticalObservation>("/vert_roi", 10);
+    vert_pub = nh.advertise<cavity_detection_msgs::LogoObservation>("/vert_logo", 10);
     image_pub = nh.advertise<sensor_msgs::Image>("/cavity_detection/logo_image", 10);
 
     // Set up periodic processing

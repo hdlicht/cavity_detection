@@ -1,18 +1,11 @@
 <launch>
     <!-- Launch vertical_roi node -->
-    <node name="vertical_roi" pkg="cavity_detection" type="vertical_roi.py" output="screen">
+    <node name="vertical_detector_node" pkg="cavity_detection" type="vertical_roi" output="screen">
         <!-- <param name="param_name" value="param_value" /> -->
     </node>
 
     <!-- Launch horizontal_roi node -->
-    <node name="horizontal_roi" pkg="cavity_detection" type="horizontal_roi.py" output="screen">
+    <node name="horizontal_detector_node" pkg="cavity_detection" type="horizontal_roi_2.py" output="screen">
         <!-- <param name="param_name" value="param_value" /> -->
     </node>
-
-    <!-- Launch cavity_map node -->
-    <node name="cavity_map" pkg="cavity_detection" type="cavity_map_server.py" output="screen">
-        <!-- <param name="param_name" value="param_value" /> -->
-    </node>
-    <node pkg="tf" type="static_transform_publisher" name="base_link_to_base_footprint" 
-      args="0 0 0 0 0 0 base_footprint base_link 100" />
 </launch>

@@ -7,7 +7,7 @@ project(cavity_detection)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-set(ncnn_DIR "/home/henry/robo/capstone/capstone_vision_ws/src/ncnn/build/install/lib/cmake/ncnn")
+set(ncnn_DIR "../../ncnn/build/install/lib/cmake/ncnn")
 
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
@@ -23,7 +23,6 @@ find_package(catkin REQUIRED COMPONENTS
   nav_msgs
   tf2_ros
   tf2_geometry_msgs
-  costmap_2d
   visualization_msgs
 )
 find_package(OpenCV REQUIRED)
@@ -74,9 +73,9 @@ include_directories(
   include
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
-  /home/henry/robo/capstone/capstone_vision_ws/src/ncnn/src  
-  /home/henry/robo/capstone/capstone_vision_ws/src/ncnn/build/install/include
-  /home/henry/robo/capstone/capstone_vision_ws/src/ncnn/build/install/include/ncnn
+  ../../ncnn/src  
+  ../../ncnn/build/install/include
+  ../../ncnn/build/install/include/ncnn
 
 )
 
@@ -90,6 +89,14 @@ add_library(logo_detector
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(vertical_roi src/vertical_roi.cpp)
 target_link_libraries(vertical_roi 
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  logo_detector
+  ncnn
+)
+
+add_executable(vertical_servo src/vertical_servo.cpp)
+target_link_libraries(vertical_servo 
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
   logo_detector

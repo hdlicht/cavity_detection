@@ -54,6 +54,7 @@ add_message_files(
   RoiStamped.msg
   HorizontalObservation.msg
   VerticalObservation.msg
+  LogoObservation.msg
 )
 
 # Generate services in the 'srv' folder

@@ -26,7 +26,7 @@ SIZE_FACTOR = 1.0
 GROUND_NORMAL = np.array([0, 0, 1])  
 MIN_LINES_FOR_PARALLEL_CLUSTER = 3
 MIN_LINES_FOR_COLINEAR_CLUSTER = 3
-SPACING_TOLERANCE_RATIO = 0.15 # e.g., +/- 15%
+SPACING_TOLERANCE_RATIO = 0.25 # e.g., +/- 15%
 MIN_SIGNIFICANT_DISTANCE = 0.01 # e.g., 1 cm minimum gap to consider for spacing
 PARALLEL_EPSILON = 0.1 # Epsilon for DBSCAN clustering of parallel lines
 COLINEAR_EPSILON = 10 # Epsilon for DBSCAN clustering of collinear lines
@@ -99,14 +99,13 @@ def get_3d_points(depth_image, points_2d):
     return points_3d[valid]
 
 def detect(depth_image, time_stamp):
-    ct = 0 # What is ct used for? Seems unused.
     """Periodically process the fusion of RGB and Depth images."""
     # global pub, models, calibration_count, average_model, runtimes - Remove unused globals if possible
     global pub2, pub3, bridge, T_camera_world, SIZE_FACTOR # Keep necessary globals/constants
     start_time = time.time()
 
     depth_image = cv2.resize(depth_image, (0, 0), fx=SIZE_FACTOR, fy=SIZE_FACTOR)
-    depth_image = depth_image # / 1000.
+    depth_image = depth_image * 1.1 # / 1000.
     H, W = depth_image.shape[:2]
     # Consider making ROI configurable or dynamically determined
     bottom = [0, H//2, W, H]
@@ -345,7 +344,7 @@ def detect(depth_image, time_stamp):
     # Estimate base spacing using median of significant distances
     valid_distances = distances_between_lines_m[distances_between_lines_m > MIN_SIGNIFICANT_DISTANCE]
     if len(valid_distances) == 0:
-         #print(f"No significant distances (> {MIN_SIGNIFICANT_DISTANCE}m) found between lines. Cannot check spacing. Skipping.")
+         print(f"No significant distances (> {MIN_SIGNIFICANT_DISTANCE}m) found between lines. Cannot check spacing. Skipping.")
          return
 
     estimated_base_spacing = np.median(valid_distances)
@@ -371,16 +370,16 @@ def detect(depth_image, time_stamp):
 
         # Check if relative error is within tolerance
         if relative_error > SPACING_TOLERANCE_RATIO:
-            #print(f"Inconsistent spacing: Dist {d:.3f}m is not close to multiple {nearest_multiple} of base {estimated_base_spacing:.3f}m (Rel Error: {relative_error:.2f} > {SPACING_TOLERANCE_RATIO})")
+            print(f"Inconsistent spacing: Dist {d:.3f}m is not close to multiple {nearest_multiple} of base {estimated_base_spacing:.3f}m (Rel Error: {relative_error:.2f} > {SPACING_TOLERANCE_RATIO})")
             spacing_consistent = False
             break
         detected_multiples.append(nearest_multiple)
 
     if not spacing_consistent:
-        #print("Failed spacing consistency check. Abandoning instance.")
+        print("Failed spacing consistency check. Abandoning instance.")
         return
-#    else:
-        #print(f"Spacing consistency passed. Detected multiples (approx): {detected_multiples}")
+    else:
+        print(f"Spacing consistency passed. Detected multiples (approx): {detected_multiples}")
     # --- End Constraint 3 Implementation ---
 
     # --- Calculations and Visualization ---
@@ -442,6 +441,7 @@ def detect(depth_image, time_stamp):
 
          marker.points.append(p1_world)
          marker.points.append(p2_world)
+         marker.lifetime = rospy.Duration(0.5)  # Set lifetime for the marker
 
     try:
         pub2.publish(marker)
@@ -458,9 +458,8 @@ def detect(depth_image, time_stamp):
     observation.height = best_d
     observation.lines = list(final_lines_world.flatten())
     pub.publish(observation)
-
     end_time = time.time()
-    #print(f"Detection time: {end_time - start_time:.4f} seconds")
+    print(f"Detection time: {end_time - start_time:.4f} seconds")
 
 def depth_callback(msg):
     """Callback function for Depth images."""
@@ -477,9 +476,9 @@ if __name__ == "__main__":
     video_topic = "/camera/rgb/image_raw"
     depth_topic = "/camera/depth/image"
 #    rospy.Subscriber(video_topic, Image, rgb_callback, queue_size=2)
-    rospy.Subscriber(depth_topic, Image, depth_callback, queue_size=2)
+    rospy.Subscriber(depth_topic, Image, depth_callback, queue_size=1)
     pub = rospy.Publisher('/horiz_roi', HorizontalObservation, queue_size=2)
-    pub2 = rospy.Publisher('/lines', Marker, queue_size=2)
+    pub2 = rospy.Publisher('/cavity_detection/temporal_lines', Marker, queue_size=2)
     pub3 = rospy.Publisher('/cavity_detection/depth_points_2d', Image, queue_size=2)
 
     rospy.spin()

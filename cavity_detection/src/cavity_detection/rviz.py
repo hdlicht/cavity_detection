@@ -45,7 +45,7 @@ def publish_temporal(pub, msg):
 
     pub.publish(marker)
 
-def draw_roi(roi):
+def draw_roi(roi, namespace):
     marker = Marker()
     # Use regex to extract the number from the id
     match = re.search(r'\d+', roi.id)
@@ -55,7 +55,7 @@ def draw_roi(roi):
         roi_number = 0
     marker.header.frame_id = roi.id
     marker.header.stamp = rospy.Time.now()
-    marker.ns = "horiz_clusters"
+    marker.ns = namespace
     marker.id = roi_number
     marker.type = Marker.CUBE
     marker.action = Marker.ADD
@@ -75,11 +75,11 @@ def draw_roi(roi):
     marker.color.b = 0.5
     return marker
 
-def draw_cavity(cavity):
+def draw_cavity(cavity, namespace):
     marker = Marker()
     marker.header.frame_id = cavity.parent.id
     marker.header.stamp = rospy.Time.now()
-    marker.ns = "horiz_cavities"
+    marker.ns = namespace
     marker.id = cavity.id
     marker.type = Marker.CUBE
     marker.action = Marker.ADD
@@ -103,15 +103,15 @@ def publish_all(pub, horiz_cavities, vert_cavities):
     # Publish markers for visualization
     array = MarkerArray()
     for roi in horiz_cavities.values():
-        marker = draw_roi(roi)
+        marker = draw_roi(roi, "horizontal_roi")
         array.markers.append(marker)
         for cavity in roi.cavities:
-            draw_cavity(cavity)
+            draw_cavity(cavity, "horizontal_cavity")
     for roi in vert_cavities.values():
-        marker = draw_roi(roi)
+        marker = draw_roi(roi, "vertical_roi")
         array.markers.append(marker)
         for cavity in roi.cavities:
-            draw_cavity(cavity)
+            draw_cavity(cavity, "vertical_cavity")
     pub.publish(array)
 
 def create_transform(parent, child, translation, rotation):
@@ -135,6 +135,14 @@ def publish_transforms(pub, horiz_cavities, vert_cavities):
         #print("nada")
         return
     for roi in horiz_cavities.values():
+        transform = create_transform("map", roi.id, roi.anchor_point, roi.orientation)
+        transform_list.append(transform)
+        # print(f"Transform from map to {roi.id}: {roi.anchor_point}, {roi.orientation}")
+        if roi.cavities is not None:
+            for cavity in roi.cavities:
+                transform = create_transform(roi.id, cavity.id, cavity.front, roi.orientation)
+                transform_list.append(transform)
+    for roi in vert_cavities.values():
         transform = create_transform("map", roi.id, roi.anchor_point, roi.orientation)
         transform_list.append(transform)
         # print(f"Transform from map to {roi.id}: {roi.anchor_point}, {roi.orientation}")

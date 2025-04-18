@@ -2,7 +2,7 @@
 
 import rospy
 import numpy as np
-from cavity_detection_msgs.msg import Roi, RoiStamped, HorizontalObservation, VerticalObservation
+from cavity_detection_msgs.msg import Roi, HorizontalObservation, VerticalObservation
 from cavity_detection_msgs.srv import UpdateRoi, UpdateRoiResponse, GetNearestRoi, GetNearestRoiResponse, AddCavity, AddCavityResponse, UpdateCavity, UpdateCavityResponse
 import tf.transformations
 from visualization_msgs.msg import MarkerArray
@@ -18,8 +18,9 @@ from cavity_detection.cavity_structs_2 import HorizontalCluster, HorizontalCavit
 from cavity_detection.rviz import publish_temporal, publish_all, publish_transforms
 from cavity_detection.helpers import transform_2d, invert_2d_transform
 from scipy.spatial import KDTree
+from std_msgs.msg import Header
 
-verbose = False
+verbose = True
 WALL_DEPTH = 0.2
 TF_RATE = 1
 
@@ -29,12 +30,12 @@ class CavityMap:
         self.horiz_clusters = {}
         self.vert_clusters = {}
         rospy.init_node('cavity_map', anonymous=True)
-        rospy.Subscriber('/horiz_roi', HorizontalObservation, self.horiz_callback)
-        # rospy.Subscriber('/vert_roi', VerticalObservation, self.vert_callback)
+        rospy.Subscriber('/horiz_roi', HorizontalObservation, self.horiz_callback, queue_size=2)
+        rospy.Subscriber('/vert_roi', VerticalObservation, self.vert_callback, queue_size=2)
         # Subscribe to the tf of the camera in map frame
         self.tf_listener = tf.TransformListener()
         self.tf_pub = tf2_ros.TransformBroadcaster()
-        self.marker_pub = rospy.Publisher('/rois', MarkerArray, queue_size=2)
+        self.marker_pub = rospy.Publisher('/cavity_detection/cavity_markers', MarkerArray, queue_size=1)
         self.s1 = rospy.Service('get_nearest_roi', GetNearestRoi, self.handle_get_nearest_roi)
         self.s2 = rospy.Service('update_roi', UpdateRoi, self.handle_update_roi)
         self.s3 = rospy.Service('add_cavity', AddCavity, self.handle_add_cavity)
@@ -49,18 +50,20 @@ class CavityMap:
         # observation_distance = np.linalg.norm(np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z]))
         try:
             pos, quat = self.tf_listener.lookupTransform("map", msg.header.frame_id, msg.header.stamp)
-            angle = euler_from_quaternion(quat)[2]
-            T = np.array([[np.cos(angle),-np.sin(angle), pos[0]], 
-                          [np.sin(angle),np.cos(angle), pos[1]], 
-                          [0, 0, 1]])
-            transformed_msg = self.transform_observation(msg, T)
+            transformed_msg = self.transform_observation(msg, pos, quat)
             for roi in self.horiz_clusters.values():
+                print(f"Checking overlap with {roi.id}")
                 if roi.is_overlapping(transformed_msg):
                     roi.add_observation(transformed_msg)
-                    updated = True
+                    if updated is not None:
+                        print("updated is not none")
+                        self.merge_clusters(updated, roi.id)
+                        if verbose: print(f"Merged cavities {updated} and {roi.id}")
+                    updated = roi.id
+                    print(updated)
                     if verbose: print(f"Updated cavity {roi.id}")
-                    break
-            if not updated:
+
+            if updated is None:
                 roi_id = f'horiz_roi_{len(self.horiz_clusters)}'
                 new_roi = HorizontalCluster(roi_id, transformed_msg)
                 self.horiz_clusters[roi_id] = new_roi
@@ -72,42 +75,52 @@ class CavityMap:
             rospy.logwarn(f"Transform error: {e}")
 
     def vert_callback(self, msg):
-        updated = False
-        observation_angle = msg.orientation
-        # observation_distance = np.linalg.norm(np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z]))
+        print("entering vert callback")
         try:
-            pos, quat = self.tf_listener.lookupTransform("map", msg.header.frame_id, msg.header.stamp)
-            
-            transform_stamped = TransformStamped()
-            transform_stamped.transform.translation = Vector3(pos[0], pos[1], pos[2])
-            transform_stamped.transform.rotation = Quaternion(quat[0], quat[1], quat[2], quat[3])
-            transform_stamped.child_frame_id = 'map'
-            transform_stamped.header = msg.header
-            transformed_msg = self.transform_roi(msg, transform_stamped)
-            for i, roi in enumerate(self.vert_clusters.values()):
-                if roi.is_overlapping(transformed_msg):
-                    roi.add_observation(transformed_msg)
-                    updated = True
-                    if verbose: print(f"Updated cavity {roi.id}")
+            updated = None
+            for roi in self.vert_clusters.values():
+                if roi.is_overlapping(msg):
+                    roi.add_observation(msg)
+                    updated = roi.id
+                    if verbose: print(f"Updated cluster {roi.id}")
                     break
-            if not updated:
+            if updated is None:
                 roi_id = f'vert_roi_{len(self.vert_clusters)}'
-                new_roi = VerticalCluster(roi_id, transformed_msg)
+                new_roi = VerticalCluster(roi_id, msg)
                 self.vert_clusters[roi_id] = new_roi
-                if verbose: print(f"Added new cavity {roi_id}")
+                if verbose: print(f"Added new cluster {roi_id}")
+            
+            #self.make_tree()
 
-            self.make_tree()
+        except Exception as e:
+            rospy.logerr(f"Error in vert_callback: {e}")
 
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
-            rospy.logwarn(f"Transform error: {e}")
     
     def merge_clusters(self, cluster_1_id, cluster_2_id):
         if verbose: print(f"Merging clusters {cluster_1_id} and {cluster_2_id}")
         # find the bigger cluster
+        cluster_1 = self.horiz_clusters[cluster_1_id]
+        cluster_2 = self.horiz_clusters[cluster_2_id]
+        if cluster_1.length > cluster_2.length:
+            bigger_cluster = cluster_1
+            smaller_cluster = cluster_2
+        else:
+            bigger_cluster = cluster_2
+            smaller_cluster = cluster_1
         # make smaller one into an observation message
+        small_observation = HorizontalObservation()
+        small_observation.header = Header()
+        small_observation.header.frame_id = "map"
+        small_observation.header.stamp = rospy.Time.now()
+        small_observation.lines = list(smaller_cluster.estimated_lines.flatten())
+        small_observation.orientation = smaller_cluster.orientation
+        small_observation.length = smaller_cluster.length
+        small_observation.spacing = smaller_cluster.spacing
+        small_observation.height = smaller_cluster.height
         # do fusion
+        bigger_cluster.add_observation(small_observation)
         # remove smaller cluster from set
-        self.horiz_clusters.__delitem__(cluster_2_id)
+        self.horiz_clusters.__delitem__(smaller_cluster.id)
     
     def make_tree(self):
         self.open_cavities = []
@@ -115,13 +128,18 @@ class CavityMap:
             self.open_cavities.append(roi)
         self.kd_tree = KDTree([roi.anchor_point for roi in self.open_cavities])
 
-    def transform_observation(self, observation, transform):
+    def transform_observation(self, observation, pos, quat):
+        angle = euler_from_quaternion(quat)[2]
+        T = np.array([[np.cos(angle),-np.sin(angle), pos[0]], 
+                        [np.sin(angle),np.cos(angle), pos[1]], 
+                        [0, 0, 1]])
         lines = np.array(observation.lines).reshape(-1, 2)
-        lines = np.vstack((lines.T, np.ones((1, len(lines))))) 
-        transformed_lines = np.dot(transform, lines)
+        lines = np.vstack((lines.T, np.ones((1, len(lines)))))
+        transformed_lines = np.dot(T, lines)
         transformed_lines = transformed_lines[:2, :].T
         transformed_lines = transformed_lines.flatten()
         observation.lines = transformed_lines.tolist()
+        observation.orientation += angle
         observation.header.frame_id = "map"
         return observation
 
@@ -195,9 +213,8 @@ class CavityMap:
         response.success = True
         return response
     
-    def run_publish_markers(self, event=None):
+    def run_publish_markers(self, event=None): 
         publish_transforms(self.tf_pub, self.horiz_clusters, self.vert_clusters)
-
         publish_all(self.marker_pub, self.horiz_clusters, self.vert_clusters)
     
     def run(self):
@@ -206,11 +223,6 @@ class CavityMap:
         if verbose: print("Timer set")
         rospy.spin()
 
-def test_callback(event):
-    # This function is just for testing purposes
-    # It will be called every second
-    if verbose: print("Test callback triggered")
-    
 def run():        
     cavity_map = CavityMap()
     cavity_map.run()

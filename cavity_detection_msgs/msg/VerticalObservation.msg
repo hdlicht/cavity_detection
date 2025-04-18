@@ -1,2 +1,4 @@
 std_msgs/Header header
-int16[] points 
+float32 orientation
+float32[] p1
+float32[] p2
