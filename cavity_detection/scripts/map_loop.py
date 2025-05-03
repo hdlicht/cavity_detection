@@ -11,14 +11,107 @@ from sensor_msgs.msg import LaserScan
 import math
 from matplotlib.path import Path
 from cavity_detection.ransac import ransac_line_fitting
-from cavity_detection_msgs.msg import VerticalObservation
+from cavity_detection_msgs.msg import LogoObservation
 from cavity_detection.helpers import transform_2d, transform_3d, invert_2d_transform, points_from_grid
-from cavity_detection.rviz import vert_detector_markers
 
 
 K_rgb = np.array([[570.342, 0.0,     314.5],
                 [0.0,     570.342, 235.5],
                 [0.0,     0.0,     1.0]])
+
+def vert_detector_markers(i, points, vertices, x1, y1, x2, y2):
+    """Publishes a marker containing both the triangle and highlighted cells."""
+
+    # Triangle edges (LINE_STRIP)
+    triangle_marker = Marker()
+    triangle_marker.header.frame_id = "map"
+    triangle_marker.header.stamp = rospy.Time.now()
+    triangle_marker.ns = "triangle"
+    triangle_marker.id = i
+    triangle_marker.type = Marker.LINE_STRIP
+    triangle_marker.action = Marker.ADD
+    triangle_marker.scale.x = 0.05  # Line thickness
+    triangle_marker.color.r = 0.0
+    triangle_marker.color.g = 1.0
+    triangle_marker.color.b = 0.0
+    triangle_marker.color.a = 1.0
+
+    for v in vertices:
+        p = Point()
+        p.x, p.y, _ = v
+        p.z = 0
+        triangle_marker.points.append(p)
+
+    # Close the triangle
+    triangle_marker.points.append(triangle_marker.points[0])
+
+    # Highlighted occupied cells (POINTS)
+    points_marker = Marker()
+    points_marker.header.frame_id = "map"
+    points_marker.header.stamp = rospy.Time.now()
+    points_marker.ns = "highlighted_pts"
+    points_marker.id = i
+    points_marker.type = Marker.POINTS
+    points_marker.action = Marker.ADD
+    points_marker.scale.x = 0.1  # Adjust for grid resolution
+    points_marker.scale.y = 0.1
+    points_marker.color.r = 1.0
+    points_marker.color.g = 0.0
+    points_marker.color.b = 0.0
+    points_marker.color.a = 1.0
+
+    for pt in points:
+        p = Point()
+        p.x, p.y = pt
+        p.z = 0
+        points_marker.points.append(p)
+    
+    # create markers for p1 and p2
+    p1_marker = Marker()
+    p1_marker.header.frame_id = "map"
+    p1_marker.header.stamp = rospy.Time.now()
+    p1_marker.ns = "p1"
+    p1_marker.id = i
+    p1_marker.type = Marker.SPHERE
+    p1_marker.action = Marker.ADD
+    p1_marker.scale.x = 0.1
+    p1_marker.scale.y = 0.1
+    p1_marker.scale.z = 0.1
+    p1_marker.color.r = 0.0
+    p1_marker.color.g = 0.0
+    p1_marker.color.b = 1.0
+    p1_marker.color.a = 1.0
+    p1_marker.pose.position.x = x1
+    p1_marker.pose.position.y = y1
+    p1_marker.pose.position.z = 0
+    p1_marker.pose.orientation.w = 1.0
+    p1_marker.pose.orientation.x = 0.0
+    p1_marker.pose.orientation.y = 0.0
+    p1_marker.pose.orientation.z = 0.0
+    p2_marker = Marker()
+    p2_marker.header.frame_id = "map"
+    p2_marker.header.stamp = rospy.Time.now()
+    p2_marker.ns = "p2"
+    p2_marker.id = i
+    p2_marker.type = Marker.SPHERE
+    p2_marker.action = Marker.ADD
+    p2_marker.scale.x = 0.1
+    p2_marker.scale.y = 0.1
+    p2_marker.scale.z = 0.1 
+    p2_marker.color.r = 0.0
+    p2_marker.color.g = 0.0
+    p2_marker.color.b = 1.0
+    p2_marker.color.a = 1.0
+    p2_marker.pose.position.x = x2
+    p2_marker.pose.position.y = y2
+    p2_marker.pose.position.z = 0
+    p2_marker.pose.orientation.w = 1.0
+    p2_marker.pose.orientation.x = 0.0
+    p2_marker.pose.orientation.y = 0.0
+    p2_marker.pose.orientation.z = 0.0
+
+    # Publish both markers
+    return triangle_marker, points_marker, p1_marker, p2_marker
 
 class TriangleOccupancyHighlighter:
     def __init__(self):
@@ -28,7 +121,7 @@ class TriangleOccupancyHighlighter:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         self.occupancy_sub = rospy.Subscriber("/map", OccupancyGrid, self.occupancy_callback)
-        self.intpair_sub = rospy.Subscriber("/vert_roi", VerticalObservation, self.observation_callback)
+        self.intpair_sub = rospy.Subscriber("/vert_logo", LogoObservation, self.observation_callback)
         self.marker_pub = rospy.Publisher("/markers", MarkerArray, queue_size=1)
 
         self.occupied_world_points = None
@@ -50,7 +143,6 @@ class TriangleOccupancyHighlighter:
 
     def occupancy_callback(self, grid_msg):
         """Process the occupancy grid to find cells inside the transformed triangle."""
-
         # Extract grid metadata
         width = grid_msg.info.width
         height = grid_msg.info.height
@@ -60,7 +152,6 @@ class TriangleOccupancyHighlighter:
         data = np.array(grid_msg.data).reshape(height, width)
 
         occupied_cells = np.argwhere(data >= 50)  # Cells with probability >= 50
-
         # Convert grid indices to world coordinates
         self.occupied_world_points = np.array([
             [x * resolution + origin_x, y * resolution + origin_y] 
@@ -75,14 +166,14 @@ class TriangleOccupancyHighlighter:
         for i in range(len(numbers)):
             left_pixel = numbers[i][0]
             right_pixel = numbers[i][2]
-            depth = 5.0
+            depth = 3.0
             left = (left_pixel - K_rgb[0, 2]) / K_rgb[0, 0] * depth
             right = (right_pixel - K_rgb[0, 2]) / K_rgb[0, 0] * depth
             # Define triangle in the camera optical frame (Z-forward, X-right, Y-down)
             triangle_vertices_camera = np.array([
                 [0, 0, 0],      # Camera origin
-                [left, 0, depth],  # Left boundary at 10m
-                [right, 0, depth]    # Right boundary at 10m
+                [depth, left, 0],  # Left boundary at 10m
+                [depth, right, 0]    # Right boundary at 10m
             ])
 
             triangle_vertices_map = self.transform_triangle_to_map(triangle_vertices_camera, msg.header.frame_id, msg.header.stamp)
@@ -90,6 +181,7 @@ class TriangleOccupancyHighlighter:
             if self.occupied_world_points is not None and triangle_vertices_map is not None:
                 # Filter points inside the triangle
                 triangle_polygon = Path(triangle_vertices_map[:,:2])
+                print(triangle_polygon.vertices)
                 inside_points = self.occupied_world_points[triangle_polygon.contains_points(self.occupied_world_points)]
                 if len(inside_points) < 3:
                     rospy.logwarn("Not enough points inside the triangle.")
@@ -129,7 +221,7 @@ class TriangleOccupancyHighlighter:
         if len(marker_array.markers) == 0:
             rospy.logwarn("No markers to publish.")
             return
-        
+        print("publishing")
         self.marker_pub.publish(marker_array)
 
 if __name__ == "__main__":

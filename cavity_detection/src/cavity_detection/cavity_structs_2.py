@@ -67,6 +67,11 @@ class HorizontalCluster:
         """ Returns the width of the cavity based on the estimated state """
         # Assuming width is the spacing between boards
         return self.spacing * (self.num_boards - 1)
+    
+    @property
+    def num_cavities(self):
+        """ Returns the height of the cavity (hard coded, arbitrary)"""
+        return (self.num_boards - 1)
 
 # Inside is_overlapping:
 # cluster_lines = self.estimated_lines # Use the property
@@ -195,12 +200,11 @@ class VerticalCluster:
     def __init__(self, id, initial_observation):
         self.id = id
         self.p1 = np.array(initial_observation.p1) if initial_observation.p1[0] != 99. else None
-        print(f"Initial p1: {self.p1}, dtype = {self.p1.dtype}")
         self.p2 = np.array(initial_observation.p2) if initial_observation.p2[0] != 99. else None
-        print(f"Initial p2: {self.p2}, dtype = {self.p2.dtype}")
         self.orientation = initial_observation.orientation
         self.num_observations = 1
         self.num_cavities = 0
+        self.spacing = 0.4
         self.cavities = []
     
     @property
@@ -225,13 +229,15 @@ class VerticalCluster:
     def anchor_point(self):
         """ Returns the height of the cavity (hard coded, arbitrary)"""
         return self.p2 if self.p2 is not None else self.p1
+    
+    def estimate_num_cavities(self):
+        """ Returns the height of the cavity (hard coded, arbitrary)"""
+        self.num_cavities = np.ceil(self.width / 0.4).astype(int) 
 
     def is_overlapping(self, observation):
         """ New overlapping check for vertical clusters """
-        print(f"Checking overlap with observation: {self.id}")
         observed_p1 = np.array(observation.p1)
         observed_p2 = np.array(observation.p2)
-        print(f"Observed points: {observed_p1}, {observed_p2}")
         if self.p1 is None and not observation.p1[0] == 99.:
             similar = np.linalg.norm(np.array(self.p2) - observed_p2) < VERTICAL_POINT_THRESHOLD and np.abs(self.orientation-observation.orientation) < VERTICAL_ORIENTATION_THRESHOLD
         elif self.p2 is None and not observation.p2[0] == 99.:
@@ -251,6 +257,7 @@ class VerticalCluster:
         else:
             self.p2 = np.average([self.p2, observation.p2], weights=[self.num_observations, 1])
         self.orientation = np.average([self.orientation, observation.orientation], weights=[self.num_observations, 1])
+        self.estimate_num_cavities()
         self.num_observations += 1
 
 class VerticalCavity:

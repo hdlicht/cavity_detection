@@ -20,11 +20,7 @@ bool getNearestRoi(cavity_detection_msgs::Roi& roi)
         roi = srv.response.roi;
 
 
-        ROS_INFO("Nearest cavity ID: %s, Pose: [%f, %f, %f]",
-                 roi.id.c_str(),
-                 roi.pose.position.x,
-                 roi.pose.position.y,
-                 roi.pose.position.z);
+        ROS_INFO("Nearest cavity ID: %s", roi.id.c_str());
         return true;
     }
     else

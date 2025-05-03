@@ -51,7 +51,6 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   Roi.msg
-  RoiStamped.msg
   HorizontalObservation.msg
   VerticalObservation.msg
   LogoObservation.msg

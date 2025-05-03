@@ -6,14 +6,15 @@ from geometry_msgs.msg import Pose, Point, Quaternion
 from cavity_detection_msgs.msg import Roi, RoiStamped
 
 def get_nearest_cavity():
-    rospy.wait_for_service('get_nearest_cavity')
-    print("done waiting")
+    print("Waiting for get_nearest_cavity service...")
+    rospy.wait_for_service('get_nearest_roi')
+    print("Done waiting!")
     try:
         get_nearest_roi = rospy.ServiceProxy('get_nearest_roi', GetNearestRoi)
         req = GetNearestRoi()
-        resp = get_nearest_roi(req)
+        resp = get_nearest_roi()
 
-        rospy.loginfo(f"Nearest cavity ID: {resp.roi.id}, Pose: {resp.roi.pose}")
+        rospy.loginfo(f"Nearest cavity ID: {resp.roi.id}")
         return resp.roi
     except rospy.ServiceException as e:
         rospy.logerr(f"Service call failed: {e}")

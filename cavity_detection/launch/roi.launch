@@ -5,7 +5,7 @@
     </node>
 
     <!-- Launch horizontal_roi node -->
-    <node name="horizontal_detector_node" pkg="cavity_detection" type="horizontal_roi_2.py" output="screen">
+    <node name="horizontal_detector_node" pkg="cavity_detection" type="horizontal_roi.py" output="screen">
         <!-- <param name="param_name" value="param_value" /> -->
     </node>
 </launch>

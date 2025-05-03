@@ -137,10 +137,11 @@ def publish_transforms(pub, horiz_cavities, vert_cavities):
     for roi in horiz_cavities.values():
         transform = create_transform("map", roi.id, roi.anchor_point, roi.orientation)
         transform_list.append(transform)
-        # print(f"Transform from map to {roi.id}: {roi.anchor_point}, {roi.orientation}")
+        print(f"{roi.id}: {roi.anchor_point}, {roi.orientation}, Num boards: {roi.num_boards}, spacing: {roi.spacing}, length: {roi.length}, height:{roi.height}")
         if roi.cavities is not None:
             for cavity in roi.cavities:
                 transform = create_transform(roi.id, cavity.id, cavity.front, roi.orientation)
+
                 transform_list.append(transform)
     for roi in vert_cavities.values():
         transform = create_transform("map", roi.id, roi.anchor_point, roi.orientation)
@@ -152,7 +153,6 @@ def publish_transforms(pub, horiz_cavities, vert_cavities):
                 transform_list.append(transform)
 
     pub.sendTransform(transform_list)
-    print(f"Published {len(transform_list)} transforms")
 
 
 def vert_detector_markers(i, points, vertices, x1, y1, x2, y2):

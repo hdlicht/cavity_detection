@@ -12,9 +12,8 @@ import numpy as np
 import threading
 from std_msgs.msg import Header, Int16MultiArray
 from visualization_msgs.msg import Marker
-from ransac import ransac_plane_fitting
+from cavity_detection.ransac import ransac_plane_fitting
 from geometry_msgs.msg import Point, Quaternion
-from cavity_detection.msg import Roi
 import tf
 
 
@@ -97,54 +96,52 @@ def get_pixels_in_rectangles(rectangles):
 def process_fusion(event):
     """Periodically process the fusion of RGB and Depth images."""
     with buffer_lock:
-        if data_buffer["rgb"] is not None and data_buffer["depth"] is not None:
+        if data_buffer["rgb"] is not None:
             rgb_image = data_buffer["rgb"]
-            inlier_image = rgb_image.copy()
-            depth_image = data_buffer["depth"]
             H, W = rgb_image.shape[:2]
             results = model.infer(rgb_image)[0]
             detections = sv.Detections.from_inference(results).xyxy
             if len(detections) < 3:
                 return
             pixels = get_pixels_in_rectangles(detections)
-            points_3d = get_3d_points(depth_image, pixels)
+            # points_3d = get_3d_points(depth_image, pixels)
             
-            header = Header()
-            header.stamp = time_stamp
-            header.frame_id = "base_footprint"
-            T = T_camera_world #tf_listener.asMatrix("map", header)
+            # # header = Header()
+            # # header.stamp = time_stamp
+            # # header.frame_id = "base_footprint"
+            # # T = T_camera_world #tf_listener.asMatrix("map", header)
 
-            points_3d = np.column_stack((points_3d, np.ones(len(points_3d))))
-            points_3d = np.dot(T, points_3d.T).T[:, :3]
+            # points_3d = np.column_stack((points_3d, np.ones(len(points_3d))))
+            # points_3d = np.dot(T, points_3d.T).T[:, :3]
 
-            plane_model, inliers = ransac_plane_fitting(points_3d, threshold=0.02, iterations=500)
-            a, b, c, d = plane_model
-            inlier_pixels = pixels[inliers]
+            # plane_model, inliers = ransac_plane_fitting(points_3d, threshold=0.02, iterations=500)
+            # a, b, c, d = plane_model
+            inlier_pixels = pixels
 
-            inlier_points = points_3d[inliers]
+            # inlier_points = points_3d[inliers]
 
-            min_x, min_y, min_z = np.min(inlier_points, axis=0)
-            max_x, max_y, max_z = np.max(inlier_points, axis=0)
+            # min_x, min_y, min_z = np.min(inlier_points, axis=0)
+            # max_x, max_y, max_z = np.max(inlier_points, axis=0)
 
-            # Publish the vertical ROI
-            vert_roi = Roi()
-            vert_roi.header = header
-            vert_roi.roi_type = 1
-            vert_roi.center = Point((min_x + max_x) / 2, (min_y + max_y) / 2, 0)
-            vert_roi.width = ((max_x - min_x)**2 + (max_y - min_y)**2)**0.5
-            vert_roi.depth = max_z
-            x = np.array([a, b, 0])
-            x = x / np.linalg.norm(x)
-            z = np.array([0, 0, 1])
-            y = np.cross(z, x)
-            y = y / np.linalg.norm(y)
-            R = np.column_stack((x, y, z))
-            T = np.eye(4)
-            T[:3, :3] = R
-            q = tf.transformations.quaternion_from_matrix(T)
-            vert_roi.orientation = Quaternion(q[0], q[1], q[2], q[3])
+            # # Publish the vertical ROI
+            # vert_roi = Roi()
+            # vert_roi.header = header
+            # vert_roi.roi_type = 1
+            # vert_roi.center = Point((min_x + max_x) / 2, (min_y + max_y) / 2, 0)
+            # vert_roi.width = ((max_x - min_x)**2 + (max_y - min_y)**2)**0.5
+            # vert_roi.depth = max_z
+            # x = np.array([a, b, 0])
+            # x = x / np.linalg.norm(x)
+            # z = np.array([0, 0, 1])
+            # y = np.cross(z, x)
+            # y = y / np.linalg.norm(y)
+            # R = np.column_stack((x, y, z))
+            # T = np.eye(4)
+            # T[:3, :3] = R
+            # q = tf.transformations.quaternion_from_matrix(T)
+            # vert_roi.orientation = Quaternion(q[0], q[1], q[2], q[3])
 
-            vert_pub.publish(vert_roi)
+            # vert_pub.publish(vert_roi)
 
 
             min_x, min_y = np.min(inlier_pixels, axis=0)
@@ -154,24 +151,24 @@ def process_fusion(event):
             msg.data = [min_x, max_x]  # Replace with your two integers
             pub2.publish(msg)
 
-            # cv2.rectangle(rgb_image, (min_x, min_y), (max_x, max_y), (0, 255, 0), 2)
+            cv2.rectangle(rgb_image, (min_x, min_y), (max_x, max_y), (0, 255, 0), 2)
 
-            # for detection in detections:
-            #     x1, y1, x2, y2 = detection.astype(int)
-            #     cv2.rectangle(rgb_image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+            for detection in detections:
+                x1, y1, x2, y2 = detection.astype(int)
+                cv2.rectangle(rgb_image, (x1, y1), (x2, y2), (255, 0, 0), 2)
 
-            #     # # Replace the pixels in the rectangle with the pixels below (remove logo)
-            #     # height = y2 - y1
-            #     # X, Y = np.meshgrid(np.arange(x1, x2), np.arange(y1, y2))
-            #     # for x, y in zip(X.ravel(), Y.ravel()):
-            #     #     if y+height >= H:
-            #     #         continue
-            #     #     rgb_image[y, x] = rgb_image[y + height, x]
+                # # Replace the pixels in the rectangle with the pixels below (remove logo)
+                # height = y2 - y1
+                # X, Y = np.meshgrid(np.arange(x1, x2), np.arange(y1, y2))
+                # for x, y in zip(X.ravel(), Y.ravel()):
+                #     if y+height >= H:
+                #         continue
+                #     rgb_image[y, x] = rgb_image[y + height, x]
 
-            # pub.publish(bridge.cv2_to_imgmsg(rgb_image, encoding="bgr8"))
+            pub.publish(bridge.cv2_to_imgmsg(rgb_image, encoding="bgr8"))
 
         else:
-            rospy.logwarn("Waiting for both RGB and Depth images to be received.")
+            rospy.logwarn("Waiting for both RGB to be received.")
 
 def rgb_callback(msg):
     """Callback function for RGB images."""
@@ -201,12 +198,12 @@ if __name__ == "__main__":
 
     # Subscribe to RGB and Depth topics
     video_topic = "/camera/rgb/image_raw"
-    depth_topic = "/camera/depth/image"
+    # depth_topic = "/camera/depth/image"
     rospy.Subscriber(video_topic, Image, rgb_callback, queue_size=10)
-    rospy.Subscriber(depth_topic, Image, depth_callback, queue_size=10)
-    # pub = rospy.Publisher('/new_image', Image, queue_size=10)
+    # rospy.Subscriber(depth_topic, Image, depth_callback, queue_size=10)
+    pub = rospy.Publisher('/new_image', Image, queue_size=10)
     pub2 = rospy.Publisher("/int_pair", Int16MultiArray, queue_size=10)
-    vert_pub = rospy.Publisher('/vert_roi', Roi, queue_size=10)
+    # vert_pub = rospy.Publisher('/vert_roi', Roi, queue_size=10)
     # marker_pub = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
 
 

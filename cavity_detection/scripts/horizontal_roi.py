@@ -61,7 +61,7 @@ T_depth_rgb = np.array([
 T_camera_world = np.array([
     [0,  0,  1,  0],  
     [-1,  0, 0,  0],  
-    [0,  -1,  0,  0.7], 
+    [0,  -1,  0,  0.77], 
     [0,  0,  0,  1] ])
 
 models = []
@@ -134,7 +134,7 @@ def detect(depth_image, time_stamp):
     points_world = points_world[:, :3] # Keep only x, y, z
     max_z = np.nanmax(points_world[:, 2])
     min_z = np.nanmin(points_world[:, 2])
-    #print(f"Max Z: {max_z:.3f}, Min Z: {min_z:.3f}")
+    print(f"Max Z: {max_z:.3f}, Min Z: {min_z:.3f}")
 
     # --- Plane Finding Section ---
     # Using hardcoded ground plane for now
@@ -148,7 +148,7 @@ def detect(depth_image, time_stamp):
 
     # Search for a plane parallel to ground (z=const) with most inliers
     # Adjust search range [0.1, 0.6] based on expected object heights
-    for height_offset in np.linspace(0.15, 0.5, 20): # height_offset = z value
+    for height_offset in np.linspace(0.25, 0.5, 20): # height_offset = z value
         # deviation = np.abs(a * points_world[:, 0] + b * points_world[:, 1] + c * points_world[:, 2] + d_plane)
         # For plane z = height_offset (or 0x+0y+1z-height_offset = 0), deviation is simpler:
         deviation = np.abs(points_world[:, 2] - height_offset)
@@ -162,7 +162,7 @@ def detect(depth_image, time_stamp):
     if best_count < 10: # Need a minimum number of points to define the surface
         #print("Not enough inliers found on any horizontal plane.")
         return
-
+    rospy.loginfo(f"Best height: {best_d}")
     inlier_points_world = points_world[best_inliers_indices]
     #print(f"Found {best_count} inliers on plane z = {best_d:.3f}m")
     if inlier_points_world.shape[0] == 0:

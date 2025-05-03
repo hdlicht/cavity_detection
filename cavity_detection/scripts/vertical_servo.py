@@ -27,33 +27,31 @@ def rgb_callback(msg):
     blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
     gray = cv2.equalizeHist(blurred_image, None)
     edges = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    edges[mask_dilated > 0] = 0
-
-    mask_pub.publish(bridge.cv2_to_imgmsg(mask_dilated))
-    print("Filtered Image Published")
-
     edges = cv2.GaussianBlur(edges, (5, 5), 0)
 
     # Parameters (tune based on observed image scale)
-    positive_width = 5
-    gap = 25
-    negative_width = 5
+    positive_width = 3
+    gap = 10
+    negative_width = 3
 
     # Create kernel
     kernel = np.concatenate([
         -np.ones(positive_width),         # +1s for the leading edge
-        np.zeros(gap),                   # gap in the middle
+        np.zeros(gap),                          # gap in the middle
         np.ones(negative_width)         # -1s for the trailing edge
     ])
-    kernel = kernel - np.mean(kernel)  # zero-mean for better response
+    #kernel = kernel - np.mean(kernel)  # zero-mean for better response
 
     # Example edge profile
     edge_profile = np.sum(edges, axis=0)  # 1D horizontal sum of vertical edges
+    profile_image = ((edge_profile-np.min(edge_profile))/(np.max(edge_profile)-np.min(edge_profile)) * 255).astype(np.uint8)
+    profile_image = np.tile(profile_image, (50, 1))
+    mask_pub.publish(bridge.cv2_to_imgmsg(profile_image))
 
     # Convolve
     response = scipy.signal.convolve(edge_profile, kernel, mode='same')
     # Suppress everything below threshold
-    threshold = np.max(response) * 0.6
+    threshold = np.max(response) * 0.55
     response[response < threshold] = 0
 
     # Non-maximum suppression (local maxima in a window)
@@ -82,15 +80,19 @@ def rgb_callback(msg):
     # Visualize: red = positive, green = negative
     blank[:, :, 2] = pos_thresh  # Red channel
     blank[:, :, 1] = neg_thresh  # Green channel
+
+    # turn grey image back to rgb
+    #gray_image_rgb = cv2.cvtColor(cv_image, cv2.COLOR_GRAY2BGR)
+
     for line in pos_lines:
         cv2.line(blank, (line, 0), (line, blank.shape[0]), (255, 0, 0), 1)
     for line in neg_lines:
         cv2.line(blank, (line, 0), (line, blank.shape[0]), (255, 0, 255), 1)
     for line in stud_locations:
-        cv2.line(blank, (line, 0), (line, blank.shape[0]), (0, 255, 255), 3)
+        cv2.line(cv_image, (line, 0), (line, blank.shape[0]), (0, 255, 255), 3)
 
     # Publish result
-    image_pub.publish(bridge.cv2_to_imgmsg(blank, encoding="bgr8"))
+    image_pub.publish(bridge.cv2_to_imgmsg(cv_image, encoding="bgr8"))
 
 
 if __name__ == "__main__":

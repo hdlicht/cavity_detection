@@ -1,4 +1,0 @@
-<launch>
-    <node name="detect_lines_node" pkg="cavity_detection" type="depth_rgb_3.py" output="screen"/>
-    <node name="line_plotting_node" pkg="cavity_detection" type="plot_lines.py" output="screen"/>
-</launch>
