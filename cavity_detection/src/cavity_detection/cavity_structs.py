@@ -47,8 +47,6 @@ class HorizontalCluster:
         self.ekf.F = np.identity(self.dim_x)
         # Process noise: How much might state drift between steps? Tune these variances!
         self.ekf.Q = np.diag([0.02**2, 0.02**2, np.radians(0.5)**2, 0.02**2, 0.01**2, 0.01**2])
-        # self.ekf.Q = Q_discrete_white_noise(dim=self.dim_x, dt=1.,
-        #                                     vars=[0.02**2, 0.02**2, np.radians(0.5)**2, 0.02**2, 0.01**2])
 
         # R1 for [theta_obs, L_obs, s_obs, height_obs]
         self.R1_intrinsics = np.diag([np.radians(5)**2, 0.1**2, 0.03**2, 0.1**2]) # Needs careful tuning!
@@ -100,7 +98,7 @@ class HorizontalCluster:
         est_midpoints = (est_segments[:,:2] + est_segments[:,2:]) / 2.0
         observed_midpoints = (observed_lines[:,:2] + observed_lines[:,2:]) / 2.0
         mutual_pairs, offsets_xy, no_match = mutual_nearest_neighbors(est_midpoints, observed_midpoints)
-        # Filter out pairs with large distancesself.open_cavities.append
+        # Filter out pairs with large distances
         threshold = 0.3
         valid_pairs = np.linalg.norm(offsets_xy, axis=1) < threshold
         # Inside boardwise_offset:

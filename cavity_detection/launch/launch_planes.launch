@@ -1,4 +1,0 @@
-<launch>
-    <node name="detect_planes_node" pkg="cavity_detection" type="depth_rgb_2.py" output="screen"/>
-    <node name="plane_visualization_node" pkg="cavity_detection" type="publish_planes.py" output="screen"/>
-</launch>

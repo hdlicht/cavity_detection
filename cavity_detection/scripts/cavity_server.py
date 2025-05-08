@@ -14,7 +14,7 @@ import tf2_geometry_msgs
 from tf.transformations import euler_from_quaternion
 from tf2_geometry_msgs import do_transform_pose
 from scipy.spatial.transform import Rotation
-from cavity_detection.cavity_structs_2 import HorizontalCluster, HorizontalCavity, VerticalCluster, VerticalCavity
+from cavity_detection.cavity_structs import HorizontalCluster, HorizontalCavity, VerticalCluster, VerticalCavity
 from cavity_detection.rviz import publish_temporal, publish_all, publish_transforms
 from cavity_detection.helpers import transform_2d, invert_2d_transform
 from scipy.spatial import KDTree

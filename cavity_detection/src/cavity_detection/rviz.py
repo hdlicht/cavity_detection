@@ -5,7 +5,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 from geometry_msgs.msg import Point
 from cavity_detection_msgs.msg import Roi
-from cavity_detection.cavity_structs_2 import HorizontalCluster, HorizontalCavity
+from cavity_detection.cavity_structs import HorizontalCluster, HorizontalCavity
 import tf.transformations
 from visualization_msgs.msg import MarkerArray
 from visualization_msgs.msg import Marker
