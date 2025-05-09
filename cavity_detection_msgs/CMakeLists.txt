@@ -60,7 +60,9 @@ add_message_files(
 add_service_files(
   FILES
   GetNearestRoi.srv
+  GetRoiById.srv
   UpdateRoi.srv
+  MoveRoi.srv
   AddCavity.srv
   UpdateCavity.srv
 

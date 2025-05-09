@@ -31,20 +31,20 @@ include_directories(
 
 )
 
-## C++ Code - Build the library
-add_library(${PROJECT_NAME}
-  src/cavity_detection_api/api.cpp
-)
+# ## C++ Code - Build the library
+# add_library(${PROJECT_NAME}
+#   src/cavity_detection_api/api.cpp
+# )
 
-## Install C++ Executables (Test Client or any other executables)
-install(TARGETS ${PROJECT_NAME}
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
+# ## Install C++ Executables (Test Client or any other executables)
+# install(TARGETS ${PROJECT_NAME}
+#   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+# )
 
-add_executable(test_client src/cavity_detection_api/test_client.cpp src/cavity_detection_api/api.cpp) 
-target_link_libraries(test_client
-  ${catkin_LIBRARIES}
-)
+# add_executable(test_client src/cavity_detection_api/test_client.cpp src/cavity_detection_api/api.cpp) 
+# target_link_libraries(test_client
+#   ${catkin_LIBRARIES}
+# )
 
 #############
 ## Testing ##

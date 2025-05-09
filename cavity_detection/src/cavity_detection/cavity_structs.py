@@ -25,7 +25,8 @@ class HorizontalCluster:
         self.height = initial_observation.height       
         self.cavities = []
         self.num_boards = len(lines)
-        self.filled = False
+        self.is_filled = False
+        self.is_current_target = False
         
         # --- EKF Initialization ---
         self.dim_x = 6
@@ -71,8 +72,6 @@ class HorizontalCluster:
         """ Returns the height of the cavity (hard coded, arbitrary)"""
         return (self.num_boards - 1)
 
-# Inside is_overlapping:
-# cluster_lines = self.estimated_lines # Use the property
     def is_overlapping(self, observation):
         """ Checks if the bounding box of the cavity overlaps an observation """
         observed_lines = np.array(observation.lines).reshape(-1, 4)
@@ -186,6 +185,26 @@ class HorizontalCluster:
         self.spacing = self.ekf.x[4]
         self.height = self.ekf.x[5]
 
+    def manual_move_transform(self, dx=0, dy=0, dtheta=0):
+        self.orientation += (dtheta * np.pi / 180.)
+        self.anchor_point[0] += (dx * np.cos(self.orientation) - dy * np.sin(self.orientation))
+        self.anchor_point[1] += (dx * np.sin(self.orientation) + dy * np.cos(self.orientation))
+    
+    def manual_update_attributes(self, length=None, spacing=None, height=None, num_cavities=None):
+        self.length = length if length is not None else self.length
+        self.spacing = spacing if spacing is not None else self.spacing
+        self.height = height if height is not None else self.height
+        if num_cavities is not None:
+            self.num_boards = num_cavities + 1
+
+    def mark_as_filled(self):
+        if not self.is_filled:
+            self.is_filled = True
+            self.is_current_target = False
+    
+    def mark_as_target(self):
+        if not self.is_filled:
+            self.is_current_target = True
 
 class HorizontalCavity:
     def __init__(self, id, parent, front):

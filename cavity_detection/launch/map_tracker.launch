@@ -1,0 +1,4 @@
+<launch>
+        <!-- Launch map_loop node -->
+    <node name="map_tracker_node" pkg="cavity_detection" type="map_tracker.py" output="screen"/>
+</launch>

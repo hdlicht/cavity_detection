@@ -4,7 +4,4 @@
 
     <!-- Launch horizontal_roi node -->
     <node name="horizontal_detector_node" pkg="cavity_detection" type="horizontal_roi.py" output="screen"/>
-
-        <!-- Launch map_loop node -->
-    <node name="map_tracker_node" pkg="cavity_detection" type="map_tracker.py" output="screen"/>
 </launch>

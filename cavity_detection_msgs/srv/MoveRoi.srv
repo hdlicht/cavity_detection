@@ -1,0 +1,6 @@
+string roi_id
+float32 dtheta
+float32 dx
+float32 dy
+---
+bool success

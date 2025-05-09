@@ -206,22 +206,44 @@ class CavityServer:
         response.roi.depth = closest_roi.height
         response.roi.num_cavities = closest_roi.num_cavities
         response.roi.cavity_width = closest_roi.spacing
-
+        return response
+    
+    def handle_get_roi_by_id(self, req):
+        # Logic to handle the request and generate a response
+        rospy.loginfo("Received request for named ROI")
+        response = GetRoiByIdResponse()
+        response.roi = Roi()
+        roi = self.horiz_clusters.get(req.id)
+        if roi is not None:
+            response.roi.id = roi.id
+            response.roi.length = roi.length
+            response.roi.width = roi.width
+            response.roi.depth = roi.height
+            response.roi.num_cavities = roi.num_cavities
+            response.roi.cavity_width = roi.spacing
         return response
 
+    def handle_move_roi(self, req):
+        # Logic to update status and generate response
+        roi = self.horiz_clusters.get(req.roi_id)
+        roi.manual_move_transform(dtheta=req.dtheta, dx=req.dx, dy=req.dy)
+        response = MoveRoiResponse()
+        response.success = True
+        return response
+    
     def handle_update_roi(self, req):
         # Logic to update status and generate response
-        roi_id = req.roi_id
-        roi = self.horiz_cavities[roi_id]
-        if req.roi_pose.position.x != 0 or req.roi_pose.position.y != 0:
-            roi.position = np.array([req.roi_pose.position.x, req.roi_pose.position.y, req.roi_pose.position.z])
-            roi.orientation = np.array([req.roi_pose.orientation.x, req.roi_pose.orientation.y, req.roi_pose.orientation.z, req.roi_pose.orientation.w])
+        roi = self.horiz_clusters.get(req.roi_id)
+
         if req.length != 0.0:
-            roi.length = req.length
-        if req.width != 0.0:
-            roi.width = req.width
-        if req.depth != 0.0:
-            roi.depth = req.depth
+            roi.manual_update_attributes(length=req.length)
+        if req.height != 0.0:
+            roi.manual_update_attributes(height=req.height)
+        if req.spacing != 0.0:
+            roi.manual_update_attributes(spacing=req.spacing)
+        if req.num_cavities != 0:
+            roi.manual_update_attributes(num_cavities=req.num_cavities)
+
         response = UpdateRoiResponse()
         response.success = True
         return response

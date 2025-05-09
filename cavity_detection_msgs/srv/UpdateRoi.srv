@@ -1,9 +1,7 @@
 string roi_id
-geometry_msgs/Pose roi_pose
 float32 length
-float32 width
-float32 depth
+float32 height
+float32 spacing
 int32 num_cavities
-float32 cavity_width
 ---
 bool success

@@ -15,6 +15,25 @@ from geometry_msgs.msg import Vector3, Quaternion, TransformStamped, PoseStamped
 import tf2_geometry_msgs
 import re
 
+COLORS = {
+    'red':     (1.0, 0.0, 0.0),
+    'green':   (0.0, 1.0, 0.0),
+    'blue':    (0.0, 0.0, 1.0),
+    'yellow':  (1.0, 1.0, 0.0),
+    'cyan':    (0.0, 1.0, 1.0),
+    'magenta': (1.0, 0.0, 1.0),
+    'gray':    (0.5, 0.5, 0.5),
+    'white':   (1.0, 1.0, 1.0),
+    'black':   (0.0, 0.0, 0.0),
+}
+
+def apply_named_color(marker, name, alpha=1.0):
+    r, g, b = COLORS.get(name, (1.0, 1.0, 1.0))  # default white
+    marker.color.r = r
+    marker.color.g = g
+    marker.color.b = b
+    marker.color.a = alpha
+
 def publish_temporal(pub, msg):
     marker = Marker()
     marker.header = msg.header
@@ -69,10 +88,8 @@ def draw_roi(roi, namespace):
     marker.scale.x = roi.length
     marker.scale.y = roi.width
     marker.scale.z = roi.height
-    marker.color.a = 1.0
-    marker.color.r = 0
-    marker.color.g = 0.5
-    marker.color.b = 0.5
+    color = 'gray' if roi.is_filled else 'green' if roi.is_current_target else 'blue'
+    apply_named_color(marker, color)
     return marker
 
 def draw_cavity(cavity, namespace):

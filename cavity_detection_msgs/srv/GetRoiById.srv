@@ -1,0 +1,3 @@
+string id
+---
+cavity_detection_msgs/Roi roi

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 import rospy
-from cavity_detection_msgs.srv import GetNearestRoi, UpdateRoi, UpdateRoiRequest, AddCavity, AddCavityRequest, UpdateCavity, UpdateCavityRequest
+from cavity_detection_msgs.srv import GetNearestRoi, GetRoiById, MoveRoi, UpdateRoi, AddCavity, UpdateCavity
 from geometry_msgs.msg import Pose, Point, Quaternion
 from cavity_detection_msgs.msg import Roi, RoiStamped
 
-def get_nearest_cavity():
-    print("Waiting for get_nearest_cavity service...")
+def get_nearest_roi():
+    print("Waiting for get_nearest_roi service...")
     rospy.wait_for_service('get_nearest_roi')
     print("Done waiting!")
     try:
@@ -19,16 +19,44 @@ def get_nearest_cavity():
     except rospy.ServiceException as e:
         rospy.logerr(f"Service call failed: {e}")
 
-def update_roi(roi_id, roi_pose, length, width, depth):
+def get_roi_by_id():
+    print("Waiting for get_roi_by_id service...")
+    rospy.wait_for_service('get_roi_by_id')
+    print("Done waiting!")
+    try:
+        get_roi_by_id = rospy.ServiceProxy('get_roi_by_id', GetNearestRoi)
+        req = GetRoiById()
+        resp = get_roi_by_id()
+
+        rospy.loginfo(f"Retrieving {resp.roi.id}")
+        return resp.roi
+    except rospy.ServiceException as e:
+        rospy.logerr(f"Service call failed: {e}")
+
+def move_roi(roi_id, dtheta, dx, dy):
+    rospy.wait_for_service('move_roi')
+    try:
+        update_roi = rospy.ServiceProxy('move_roi', UpdateRoi)
+        req = UpdateRoi()
+        req.roi_id = roi_id
+        req.dtheta = dtheta
+        req.dx = dx
+        req.dy = dy
+        resp = update_roi(req)
+        rospy.loginfo(f"Move ROI success: {resp.success}")
+    except rospy.ServiceException as e:
+        rospy.logerr(f"Service call failed: {e}")
+
+def update_roi(roi_id, length, height, spacing, num_cavities):
     rospy.wait_for_service('update_roi')
     try:
         update_roi = rospy.ServiceProxy('update_roi', UpdateRoi)
-        req = UpdateRoiRequest()
+        req = UpdateRoi()
         req.roi_id = roi_id
-        req.roi_pose = roi_pose
         req.length = length
-        req.width = width
-        req.depth = depth
+        req.height = height
+        req.depth = spacing
+        req.num_cavities = num_cavities
         resp = update_roi(req)
         rospy.loginfo(f"Update ROI success: {resp.success}")
     except rospy.ServiceException as e:
@@ -38,7 +66,7 @@ def add_cavity(roi_id, y_offset, width):
     rospy.wait_for_service('add_cavity')
     try:
         add_cavity = rospy.ServiceProxy('add_cavity', AddCavity)
-        req = AddCavityRequest()
+        req = AddCavity()
         req.roi_id = roi_id
         req.y_offset = y_offset
         req.width = width
@@ -52,7 +80,7 @@ def update_cavity(roi_id, cavity_id, y_offset, width, status):
     rospy.wait_for_service('update_cavity')
     try:
         update_cavity = rospy.ServiceProxy('update_cavity', UpdateCavity)
-        req = UpdateCavityRequest()
+        req = UpdateCavity()
         req.roi_id = roi_id
         req.cavity_id = cavity_id
         req.y_offset = y_offset
