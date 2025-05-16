@@ -1,0 +1,5 @@
+string roi_id
+int16 start
+int16 end
+---
+bool success

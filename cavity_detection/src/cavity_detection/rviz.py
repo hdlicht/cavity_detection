@@ -61,7 +61,6 @@ def publish_temporal(pub, msg):
         marker.scale.x = 0.05
         marker.scale.y = msg.width
         marker.scale.z = msg.depth
-
     pub.publish(marker)
 
 def draw_roi(roi, namespace):

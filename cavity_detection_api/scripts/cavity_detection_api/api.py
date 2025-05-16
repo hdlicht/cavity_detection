@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 import rospy
-from cavity_detection_msgs.srv import GetNearestRoi, GetRoiById, MoveRoi, UpdateRoi, AddCavity, UpdateCavity
+from cavity_detection_msgs.srv import GetNearestRoi, GetRoiById, MoveRoi, UpdateRoi, AddCavity, UpdateCavity, MarkFilled
 from geometry_msgs.msg import Pose, Point, Quaternion
-from cavity_detection_msgs.msg import Roi, RoiStamped
+from cavity_detection_msgs.msg import Roi
 
 def get_nearest_roi():
     print("Waiting for get_nearest_roi service...")
@@ -36,8 +36,8 @@ def get_roi_by_id():
 def move_roi(roi_id, dtheta, dx, dy):
     rospy.wait_for_service('move_roi')
     try:
-        update_roi = rospy.ServiceProxy('move_roi', UpdateRoi)
-        req = UpdateRoi()
+        update_roi = rospy.ServiceProxy('move_roi', MoveRoi)
+        req = MoveRoi()
         req.roi_id = roi_id
         req.dtheta = dtheta
         req.dx = dx
@@ -59,6 +59,17 @@ def update_roi(roi_id, length, height, spacing, num_cavities):
         req.num_cavities = num_cavities
         resp = update_roi(req)
         rospy.loginfo(f"Update ROI success: {resp.success}")
+    except rospy.ServiceException as e:
+        rospy.logerr(f"Service call failed: {e}")
+
+def mark_filled(roi_id, length, height, spacing, num_cavities):
+    rospy.wait_for_service('mark_filled')
+    try:
+        mark_filled = rospy.ServiceProxy('mark_filled', UpdateRoi)
+        req = MarkFilled()
+        req.roi_id = roi_id
+        resp = mark_filled(req)
+        rospy.loginfo(f"Mark Filled success: {resp.success}")
     except rospy.ServiceException as e:
         rospy.logerr(f"Service call failed: {e}")
 

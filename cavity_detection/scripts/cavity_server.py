@@ -3,7 +3,7 @@
 import rospy
 import numpy as np
 from cavity_detection_msgs.msg import Roi, HorizontalObservation, VerticalObservation
-from cavity_detection_msgs.srv import UpdateRoi, UpdateRoiResponse, GetNearestRoi, GetNearestRoiResponse, AddCavity, AddCavityResponse, UpdateCavity, UpdateCavityResponse
+from cavity_detection_msgs.srv import *
 import tf.transformations
 from visualization_msgs.msg import MarkerArray
 from visualization_msgs.msg import Marker
@@ -40,6 +40,11 @@ class CavityServer:
         self.s2 = rospy.Service('update_roi', UpdateRoi, self.handle_update_roi)
         self.s3 = rospy.Service('add_cavity', AddCavity, self.handle_add_cavity)
         self.s4 = rospy.Service('update_cavity', UpdateCavity, self.handle_update_cavity)
+        self.s5 = rospy.Service('split_roi', SplitRoi, self.handle_split_roi)
+        self.s6 = rospy.Service('get_roi_by_id', GetRoiById, self.handle_get_roi_by_id)
+        self.s7 = rospy.Service('move_roi', MoveRoi, self.handle_move_roi)
+        self.s8 = rospy.Service('marked_filled', MarkFilled, self.handle_mark_filled)
+        self.s9 = rospy.Service()
         self.next_horizontal = 0
         self.next_vertical = 0
         
@@ -93,41 +98,40 @@ class CavityServer:
         except Exception as e:
             rospy.logerr(f"Error in vert_callback: {e}")
 
-    def split_cluster(self, cluster_id, split_points, min_cluster_size=3):
-        cluster = self.horiz_clusters[cluster_id]
+    def make_sub_cluster(self, cluster, start, end, new_cluster_id):
         cluster_lines = cluster.generate_estimated_segments()
-        num_boards = len(cluster_lines)
+        new_lines = cluster_lines[start:end+1] # +1 because we need to include the end beam
+        new_observation = HorizontalObservation()
+        new_observation.header = Header()
+        new_observation.header.frame_id = "map"
+        new_observation.header.stamp = rospy.Time.now()
+        new_observation.lines = new_lines.flatten()
+        new_observation.orientation = cluster.orientation
+        new_observation.length = cluster.length
+        new_observation.spacing = cluster.spacing
+        new_observation.height = cluster.height
+        new_cluster = HorizontalCluster(new_cluster_id, new_observation)
+        return new_cluster
 
-        # Always include 0 and num_boards to simplify logic
-        split_points = [0] + split_points + [num_boards]
+    def split_cluster(self, cluster_id, start, end, min_cluster_size=3):
+        cluster = self.horiz_clusters[cluster_id]
+        end_board = cluster.num_boards - 1
+        num_in_segment = end - start
 
-        for i in range(len(split_points) - 1):
-            start = split_points[i]
-            end = split_points[i+1]
+        if num_in_segment < min_cluster_size:
+            return
+        
+        self.horiz_clusters[cluster.id] = self.make_sub_cluster(cluster, start, end, cluster.id)
+        
+        if start >= min_cluster_size:
+            # make a before cluster
+            before_cluster_id = self.next_horiz_id()
+            self.horiz_clusters[before_cluster_id] = self.make_sub_cluster(cluster, 0, start, before_cluster_id)
 
-            num_in_segment = end - start
-            if num_in_segment < min_cluster_size:
-                continue  # Too small, skip
-
-            new_cluster_id = self.next_horiz_id()
-            new_lines = cluster_lines[start:end]
-
-            new_observation = HorizontalObservation()
-            new_observation.header = Header()
-            new_observation.header.frame_id = "map"
-            new_observation.header.stamp = rospy.Time.now()
-            new_observation.lines = new_lines.flatten()
-            new_observation.orientation = cluster.orientation
-            new_observation.length = cluster.length
-            new_observation.spacing = cluster.spacing
-            new_observation.height = cluster.height
-
-            new_cluster = HorizontalCluster(new_cluster_id, new_observation)
-            self.horiz_clusters[new_cluster_id] = new_cluster
-
-        # Delete original cluster
-        del self.horiz_clusters[cluster_id]
-
+        if end_board - end >= min_cluster_size:
+            # make an after cluster
+            after_cluster_id = self.next_horiz_id()
+            self.horiz_clusters[after_cluster_id] = self.make_sub_cluster(cluster, end, end_board, after_cluster_id)
 
     def next_vert_id(self): 
         id = f'vert_roi_{self.next_vertical}'
@@ -247,6 +251,17 @@ class CavityServer:
         response = UpdateRoiResponse()
         response.success = True
         return response
+    
+    def handle_split_roi(self, req):
+        # Logic to update status and generate response
+        roi = self.horiz_clusters.get(req.roi_id)
+        response = SplitRoiResponse()
+        try:
+            self.split_cluster(roi.id, req.start, req.end)
+            response.success = True
+        except Exception as e:
+            response.success = False
+        return response
 
     def handle_add_cavity(self, req):
         # Logic to update status and generate response
@@ -277,6 +292,14 @@ class CavityServer:
         if req.status:
             cavity.status = req.status
         response = UpdateCavityResponse()
+        response.success = True
+        return response
+    
+    def handle_mark_filled(self, req):
+        # Logic to update filled status
+        roi = self.horiz_cavities.get(req.roi_id)
+        roi.is_filled = True
+        response = MarkFilledResponse()
         response.success = True
         return response
     

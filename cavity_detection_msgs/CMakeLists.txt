@@ -63,9 +63,9 @@ add_service_files(
   GetRoiById.srv
   UpdateRoi.srv
   MoveRoi.srv
+  MarkFilled.srv
   AddCavity.srv
   UpdateCavity.srv
-
 )
 
 ## Generate actions in the 'action' folder
