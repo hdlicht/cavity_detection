@@ -4,7 +4,7 @@ import rospy
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from geometry_msgs.msg import Point
-from cavity_detection_msgs.msg import Roi
+from cavity_detection_msgs.msg import Roi, RoiList
 from cavity_detection.cavity_structs import HorizontalCluster, HorizontalCavity
 import tf.transformations
 from visualization_msgs.msg import MarkerArray
@@ -63,6 +63,30 @@ def publish_temporal(pub, msg):
         marker.scale.z = msg.depth
     pub.publish(marker)
 
+def draw_cavity(cavity, namespace):
+    marker = Marker()
+    marker.header.frame_id = cavity.parent.id
+    marker.header.stamp = rospy.Time.now()
+    marker.ns = namespace
+    marker.id = cavity.id
+    marker.type = Marker.CUBE
+    marker.action = Marker.ADD
+    marker.pose.position.x = cavity.parent.length/2
+    marker.pose.position.y = cavity.width/2
+    marker.pose.position.z = cavity.height/2
+    marker.pose.orientation.x = 0
+    marker.pose.orientation.y = 0
+    marker.pose.orientation.z = 0
+    marker.pose.orientation.w = 1
+    marker.scale.x = cavity.parent.length
+    marker.scale.y = cavity.parent.width
+    marker.scale.z = cavity.parent.height
+    marker.color.a = 1.0
+    marker.color.r = 0
+    marker.color.g = 0.5
+    marker.color.b = 0.5
+    return marker
+
 def draw_roi(roi, namespace):
     marker = Marker()
     # Use regex to extract the number from the id
@@ -91,45 +115,6 @@ def draw_roi(roi, namespace):
     apply_named_color(marker, color)
     return marker
 
-def draw_cavity(cavity, namespace):
-    marker = Marker()
-    marker.header.frame_id = cavity.parent.id
-    marker.header.stamp = rospy.Time.now()
-    marker.ns = namespace
-    marker.id = cavity.id
-    marker.type = Marker.CUBE
-    marker.action = Marker.ADD
-    marker.pose.position.x = cavity.parent.length/2
-    marker.pose.position.y = cavity.width/2
-    marker.pose.position.z = cavity.height/2
-    marker.pose.orientation.x = 0
-    marker.pose.orientation.y = 0
-    marker.pose.orientation.z = 0
-    marker.pose.orientation.w = 1
-    marker.scale.x = cavity.parent.length
-    marker.scale.y = cavity.parent.width
-    marker.scale.z = cavity.parent.height
-    marker.color.a = 1.0
-    marker.color.r = 0
-    marker.color.g = 0.5
-    marker.color.b = 0.5
-    return marker
-
-def publish_all(pub, horiz_cavities, vert_cavities):
-    # Publish markers for visualization
-    array = MarkerArray()
-    for roi in horiz_cavities.values():
-        marker = draw_roi(roi, "horizontal_roi")
-        array.markers.append(marker)
-        for cavity in roi.cavities:
-            draw_cavity(cavity, "horizontal_cavity")
-    for roi in vert_cavities.values():
-        marker = draw_roi(roi, "vertical_roi")
-        array.markers.append(marker)
-        for cavity in roi.cavities:
-            draw_cavity(cavity, "vertical_cavity")
-    pub.publish(array)
-
 def create_transform(parent, child, translation, rotation):
     transform = TransformStamped()
     transform.header.stamp = rospy.Time.now()
@@ -145,30 +130,42 @@ def create_transform(parent, child, translation, rotation):
     transform.transform.rotation.w = rotation[3]
     return transform
 
-def publish_transforms(pub, horiz_cavities, vert_cavities):
+def create_roi_msg(roi):
+    msg = Roi()
+    msg.id = roi.id
+    msg.length = roi.length
+    msg.width = roi.width
+    msg.depth = roi.height
+    msg.num_cavities = roi.num_cavities
+    msg.cavity_width = roi.spacing
+    return msg
+
+def publish_all(transform_pub, marker_pub, target_pub, horizontal_cavities, vertical_cavities):
+    marker_array = MarkerArray()
     transform_list = []
-    if len(horiz_cavities) + len(vert_cavities) == 0:
-        #print("nada")
-        return
-    for roi in horiz_cavities.values():
-        transform = create_transform("map", roi.id, roi.anchor_point, roi.orientation)
-        transform_list.append(transform)
-        print(f"{roi.id}: {roi.anchor_point}, {roi.orientation}, Num boards: {roi.num_boards}, spacing: {roi.spacing}, length: {roi.length}, height:{roi.height}")
-        if roi.cavities is not None:
-            for cavity in roi.cavities:
-                transform = create_transform(roi.id, cavity.id, cavity.front, roi.orientation)
+    roi_list = []
 
-                transform_list.append(transform)
-    for roi in vert_cavities.values():
-        transform = create_transform("map", roi.id, roi.anchor_point, roi.orientation)
-        transform_list.append(transform)
-        # print(f"Transform from map to {roi.id}: {roi.anchor_point}, {roi.orientation}")
-        if roi.cavities is not None:
-            for cavity in roi.cavities:
-                transform = create_transform(roi.id, cavity.id, cavity.front, roi.orientation)
-                transform_list.append(transform)
+    for roi in horizontal_cavities.values():
+        marker_array.markers.append(draw_roi(roi, "horizontal_roi"))
+        transform_list.append(create_transform("map", roi.id, roi.anchor_point, roi.orientation))
+        roi_list.append(create_roi_msg(roi))
 
-    pub.sendTransform(transform_list)
+    for roi in vertical_cavities.values():
+        marker_array.markers.append(draw_roi(roi, "vertical_roi"))
+        transform_list.append(create_transform("map", roi.id, roi.anchor_point, roi.orientation))
+        roi_list.append(create_roi_msg(roi))
+
+    if marker_array.markers:
+        marker_pub.publish(marker_array)
+
+    if transform_list:
+        transform_pub.sendTransform(transform_list)
+
+    if roi_list:
+        msg = RoiList()
+        msg.list = roi_list
+        target_pub.publish(msg)
+
 
 
 def vert_detector_markers(i, points, vertices, x1, y1, x2, y2):

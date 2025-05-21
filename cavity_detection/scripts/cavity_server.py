@@ -2,28 +2,22 @@
 
 import rospy
 import numpy as np
-from cavity_detection_msgs.msg import Roi, HorizontalObservation, VerticalObservation
+from cavity_detection_msgs.msg import Roi, RoiList, HorizontalObservation, VerticalObservation
 from cavity_detection_msgs.srv import *
 import tf.transformations
 from visualization_msgs.msg import MarkerArray
-from visualization_msgs.msg import Marker
 import tf
 import tf2_ros
-from geometry_msgs.msg import Vector3, Quaternion, TransformStamped, PoseStamped, Pose, Point
-import tf2_geometry_msgs
 from tf.transformations import euler_from_quaternion
-from tf2_geometry_msgs import do_transform_pose
 from scipy.spatial.transform import Rotation
 from cavity_detection.cavity_structs import HorizontalCluster, HorizontalCavity, VerticalCluster, VerticalCavity
-from cavity_detection.rviz import publish_temporal, publish_all, publish_transforms
-from cavity_detection.helpers import transform_2d, invert_2d_transform
+from cavity_detection.rviz import publish_temporal, publish_all
 from scipy.spatial import KDTree
 from std_msgs.msg import Header
 
 verbose = False
 WALL_DEPTH = 0.2
 TF_RATE = 1
-
 
 class CavityServer:
     def __init__(self):
@@ -36,6 +30,8 @@ class CavityServer:
         self.tf_listener = tf.TransformListener()
         self.tf_pub = tf2_ros.TransformBroadcaster()
         self.marker_pub = rospy.Publisher('/cavity_detection/cavity_markers', MarkerArray, queue_size=1)
+        self.roi_pub = rospy.Publisher('/cavity_detection/target_list', RoiList, queue_size=1)
+        self.s0 = rospy.Service('add_roi', AddRoi, self.handle_add_roi)
         self.s1 = rospy.Service('get_nearest_roi', GetNearestRoi, self.handle_get_nearest_roi)
         self.s2 = rospy.Service('update_roi', UpdateRoi, self.handle_update_roi)
         self.s3 = rospy.Service('add_cavity', AddCavity, self.handle_add_cavity)
@@ -43,10 +39,11 @@ class CavityServer:
         self.s5 = rospy.Service('split_roi', SplitRoi, self.handle_split_roi)
         self.s6 = rospy.Service('get_roi_by_id', GetRoiById, self.handle_get_roi_by_id)
         self.s7 = rospy.Service('move_roi', MoveRoi, self.handle_move_roi)
-        self.s8 = rospy.Service('marked_filled', MarkFilled, self.handle_mark_filled)
-        self.s9 = rospy.Service()
+        self.s8 = rospy.Service('mark_filled', MarkFilled, self.handle_mark_filled)
+        self.s9 = rospy.Service('mark_target', MarkTarget, self.handle_mark_target)
         self.next_horizontal = 0
         self.next_vertical = 0
+        self.current_target = None
         
         self.kd_tree = None
         self.open_cavities = []
@@ -99,39 +96,70 @@ class CavityServer:
             rospy.logerr(f"Error in vert_callback: {e}")
 
     def make_sub_cluster(self, cluster, start, end, new_cluster_id):
-        cluster_lines = cluster.generate_estimated_segments()
-        new_lines = cluster_lines[start:end+1] # +1 because we need to include the end beam
+        rospy.loginfo("entered make_sub_cluster")
+        cluster_lines = cluster.estimated_lines
+        print("got lines")
+        new_lines = cluster_lines[start:end] # +1 because we need to include the end beam
+        flat_lines = new_lines.flatten()
+        flat_lines = flat_lines.tolist()
+        print(flat_lines)
         new_observation = HorizontalObservation()
-        new_observation.header = Header()
+        print("made observation")
         new_observation.header.frame_id = "map"
         new_observation.header.stamp = rospy.Time.now()
-        new_observation.lines = new_lines.flatten()
+        new_observation.lines = flat_lines
         new_observation.orientation = cluster.orientation
         new_observation.length = cluster.length
         new_observation.spacing = cluster.spacing
         new_observation.height = cluster.height
-        new_cluster = HorizontalCluster(new_cluster_id, new_observation)
+        print("done making observation")
+
+        try:
+            new_cluster = HorizontalCluster(new_cluster_id, new_observation)
+        except Exception as e:
+            import traceback
+            print("EXCEPTION during HorizontalCluster construction!")
+            traceback.print_exc()
+            return  # or raise, depending on context
+        print("made cluster from observation")
         return new_cluster
 
     def split_cluster(self, cluster_id, start, end, min_cluster_size=3):
-        cluster = self.horiz_clusters[cluster_id]
+        rospy.loginfo(f"splitting cluster {cluster_id} from {start} to {end}")
+        cluster = self.horiz_clusters.get(cluster_id)
+        rospy.loginfo("got the cluster")
         end_board = cluster.num_boards - 1
         num_in_segment = end - start
 
         if num_in_segment < min_cluster_size:
+            rospy.loginfo(f"{num_in_segment} < 3, cluster too small")
             return
-        
-        self.horiz_clusters[cluster.id] = self.make_sub_cluster(cluster, start, end, cluster.id)
-        
+
         if start >= min_cluster_size:
             # make a before cluster
             before_cluster_id = self.next_horiz_id()
-            self.horiz_clusters[before_cluster_id] = self.make_sub_cluster(cluster, 0, start, before_cluster_id)
+            before_cluster = self.make_sub_cluster(cluster, 0, start, before_cluster_id)
+            rospy.loginfo(f"{before_cluster.id}: {before_cluster.num_boards} boards at {before_cluster.anchor_point}")
+
+            self.horiz_clusters[before_cluster_id] = before_cluster
+            rospy.loginfo(f'created new cluster before: {before_cluster_id}')
+        else:
+            rospy.loginfo('before too small')
 
         if end_board - end >= min_cluster_size:
             # make an after cluster
             after_cluster_id = self.next_horiz_id()
-            self.horiz_clusters[after_cluster_id] = self.make_sub_cluster(cluster, end, end_board, after_cluster_id)
+            after_cluster = self.make_sub_cluster(cluster, end, end_board, after_cluster_id)
+            self.horiz_clusters[after_cluster_id] = after_cluster
+            rospy.loginfo(f'created new cluster after: {after_cluster_id}')
+        else:
+            rospy.loginfo('after too small')
+
+        trimmed_cluster = self.make_sub_cluster(cluster, start, end, cluster_id)
+        rospy.loginfo(f'created trimmed cluster')
+
+        self.horiz_clusters[cluster_id] = trimmed_cluster
+        rospy.loginfo(f'replaced cluster with trimmed one')
 
     def next_vert_id(self): 
         id = f'vert_roi_{self.next_vertical}'
@@ -227,6 +255,15 @@ class CavityServer:
             response.roi.cavity_width = roi.spacing
         return response
 
+    def handle_add_roi(self, req):
+        # Logic to update status and generate response
+        roi_id = self.next_horiz_id()
+        new_roi = HorizontalCluster(roi_id, req.x, req.y, req.theta, req.length, req.height, req.spacing, req.num_cavities)
+        self.horiz_clusters[roi_id] = new_roi
+        response = AddRoiResponse()
+        response.roi_id = roi_id
+        return response
+
     def handle_move_roi(self, req):
         # Logic to update status and generate response
         roi = self.horiz_clusters.get(req.roi_id)
@@ -255,6 +292,7 @@ class CavityServer:
     def handle_split_roi(self, req):
         # Logic to update status and generate response
         roi = self.horiz_clusters.get(req.roi_id)
+        print(f'changing {roi.id} which has {roi.num_boards} boards right now.')
         response = SplitRoiResponse()
         try:
             self.split_cluster(roi.id, req.start, req.end)
@@ -281,9 +319,8 @@ class CavityServer:
 
     def handle_update_cavity(self, req):
         # Logic to update status and generate response
-        roi_id = req.roi_id
         cavity_id = req.cavity_id
-        roi = self.horiz_cavities[roi_id]
+        roi = self.horiz_clusters.get(req.roi_id)
         cavity = roi.cavities[cavity_id]
         if req.y_offset != 0.0:
             roi.y_offset = req.y_offset
@@ -297,19 +334,30 @@ class CavityServer:
     
     def handle_mark_filled(self, req):
         # Logic to update filled status
-        roi = self.horiz_cavities.get(req.roi_id)
+        roi = self.horiz_clusters.get(req.roi_id)
         roi.is_filled = True
         response = MarkFilledResponse()
         response.success = True
         return response
     
-    def run_publish_markers(self, event=None): 
-        publish_transforms(self.tf_pub, self.horiz_clusters, self.vert_clusters)
-        publish_all(self.marker_pub, self.horiz_clusters, self.vert_clusters)
+    def handle_mark_target(self, req):
+        # Logic to update filled status
+        response = MarkTargetResponse()
+        if self.current_target is not None:
+            current_target = self.horiz_clusters.get(self.current_target)
+            current_target.is_current_target = False
+        new_target = self.horiz_clusters.get(req.roi_id)
+        new_target.is_current_target = True
+        self.current_target = req.roi_id
+        response.success = True
+        return response
+    
+    def run_publish_all(self, event=None): 
+        publish_all(self.tf_pub, self.marker_pub, self.roi_pub, self.horiz_clusters, self.horiz_clusters)
     
     def run(self):
         # Set up a timer to publish markers at a fixed rate
-        rospy.Timer(rospy.Duration(1.0/TF_RATE), self.run_publish_markers)
+        rospy.Timer(rospy.Duration(1.0/TF_RATE), self.run_publish_all)
         if verbose: print("Timer set")
         rospy.spin()
 

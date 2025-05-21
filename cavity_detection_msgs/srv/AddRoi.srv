@@ -1,0 +1,9 @@
+float32 x
+float32 y
+float32 theta
+float32 length
+float32 height
+float32 spacing
+int32 num_cavities
+---
+string roi_id

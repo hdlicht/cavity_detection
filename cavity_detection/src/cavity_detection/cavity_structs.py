@@ -4,62 +4,74 @@ import numpy as np
 from filterpy.kalman import ExtendedKalmanFilter
 from filterpy.common import Q_discrete_white_noise
 import math
-from cavity_detection_msgs.msg import Roi, RoiStamped, HorizontalObservation, VerticalObservation
+from cavity_detection_msgs.msg import Roi, HorizontalObservation, VerticalObservation
 from shapely.geometry import Polygon
 from cavity_detection.helpers import *
 import scipy
+import rospy
 
-verbose = False
+verbose = True
 VERTICAL_POINT_THRESHOLD = 1
 VERTICAL_ORIENTATION_THRESHOLD = 0.1
 
 class HorizontalCluster:
-    def __init__(self, id, initial_observation):
-        lines = np.array(initial_observation.lines).reshape(-1, 4)
-        if verbose: print(f"Initial lines: {lines}")
-        self.anchor_point = np.array(lines[0][:2])
+    def __init__(self, id, *args):
         self.id = id
-        self.orientation = initial_observation.orientation
-        self.length = initial_observation.length
-        self.spacing = initial_observation.spacing
-        self.height = initial_observation.height       
+
+        if len(args) == 1 and hasattr(args[0], 'lines'):
+            # Initialization from observation
+            initial_observation = args[0]
+            rospy.loginfo("making new cluster from observation")
+            lines = np.array(initial_observation.lines).reshape(-1, 4)
+            self.anchor_point = np.array(lines[0][:2])
+            self.orientation = initial_observation.orientation
+            self.length = initial_observation.length
+            self.spacing = initial_observation.spacing
+            self.height = initial_observation.height       
+            self.num_boards = len(lines)
+
+        elif len(args) == 7:
+            # Initialization from manual values
+            rospy.loginfo("making new cluster from manual values")
+            x, y, theta, length, height, spacing, num_cavities = args
+            self.anchor_point = np.array([x, y])
+            self.orientation = theta
+            self.length = length
+            self.spacing = spacing
+            self.height = height
+            self.num_boards = num_cavities + 1
+        else:
+            raise ValueError("Invalid arguments for HorizontalCluster constructor")
+
+        # Shared setup
         self.cavities = []
-        self.num_boards = len(lines)
         self.is_filled = False
         self.is_current_target = False
         
-        # --- EKF Initialization ---
+        # EKF init...
         self.dim_x = 6
-        self.ekf = ExtendedKalmanFilter(dim_x=self.dim_x, dim_z=4) # Set dim_z temporarily
-
+        self.ekf = ExtendedKalmanFilter(dim_x=self.dim_x, dim_z=4)
         self.ekf.x = np.array([
-            self.anchor_point[0], # px
-            self.anchor_point[1], # py
-            self.orientation, # theta
-            self.length, # L
-            self.spacing, # s
-            self.height # height
+            self.anchor_point[0],
+            self.anchor_point[1],
+            self.orientation,
+            self.length,
+            self.spacing,
+            self.height
         ])
-
-        # Variances: Px, Py, Theta, Length, Spacing
         self.ekf.P = np.diag([0.5**2, 0.5**2, np.radians(15)**2, 0.3**2, 0.1**2, 0.1**2])
-
-        # Static model
         self.ekf.F = np.identity(self.dim_x)
-        # Process noise: How much might state drift between steps? Tune these variances!
         self.ekf.Q = np.diag([0.02**2, 0.02**2, np.radians(0.5)**2, 0.02**2, 0.01**2, 0.01**2])
+        self.R1_intrinsics = np.diag([np.radians(5)**2, 0.1**2, 0.03**2, 0.1**2]) 
+        self.R2_position = np.diag([0.1**2, 0.1**2])
 
-        # R1 for [theta_obs, L_obs, s_obs, height_obs]
-        self.R1_intrinsics = np.diag([np.radians(5)**2, 0.1**2, 0.03**2, 0.1**2]) # Needs careful tuning!
-        # R2 for position offset derived measurement [px_corrected, py_corrected]
-        self.R2_position = np.diag([0.1**2, 0.1**2]) # Needs careful tuning!
     
     @property
     def estimated_lines(self):
         # Check if num_boards exists and is valid
         if not hasattr(self, 'num_boards') or self.num_boards <= 0:
             return np.empty((0, 4)) # Return empty array if no boards
-        return generate_estimated_segments(self.ekf.x, self.num_boards)
+        return self.generate_estimated_segments()
     
     @property
     def width(self):
@@ -71,6 +83,24 @@ class HorizontalCluster:
     def num_cavities(self):
         """ Returns the height of the cavity (hard coded, arbitrary)"""
         return (self.num_boards - 1)
+    
+    def generate_estimated_segments(self):
+        """Generates expected line segments in map frame based on state.
+        Returns list of segments [[x1,y1,x2,y2], ...].
+        """
+        segments = []
+        px, py, theta, L, s, _ = self.ekf.x
+        origin = np.array([px, py])
+        direction = np.array([math.cos(theta), math.sin(theta)])
+        perp_direction = np.array([-math.sin(theta), math.cos(theta)]) # Perpendicular for width/spacing
+
+        # Need to handle case where num_boards is 0 or 1
+        for i in range(self.num_boards):
+            start_pos = origin + perp_direction * i * s
+            end_pos = start_pos + direction * L
+            segments.append(np.array([start_pos[0], start_pos[1], end_pos[0], end_pos[1]]))
+        segments = np.array(segments)
+        return segments
 
     def is_overlapping(self, observation):
         """ Checks if the bounding box of the cavity overlaps an observation """
@@ -92,7 +122,7 @@ class HorizontalCluster:
         origin = np.array([px, py])
         direction = np.array([math.cos(theta), math.sin(theta)])
         perp_direction = np.array([-math.sin(theta), math.cos(theta)]) 
-        est_segments = generate_estimated_segments(self.ekf.x, self.num_boards)
+        est_segments = self.generate_estimated_segments()
         est_segments = est_segments.reshape(-1, 4)
         est_midpoints = (est_segments[:,:2] + est_segments[:,2:]) / 2.0
         observed_midpoints = (observed_lines[:,:2] + observed_lines[:,2:]) / 2.0

@@ -67,27 +67,6 @@ def residual_with_angle(a, b):
     y[0] = math.atan2(math.sin(y[0]), math.cos(y[0])) # <--- Adjust index if z1 ordering changes
     return y
 
-# --- Placeholder helper functions (Implement these!) ---
-def generate_estimated_segments(state_vec, num_boards):
-    """Generates expected line segments in map frame based on state.
-       state_vec: [px, py, theta, L, s] where px,py is anchor (e.g., start of first board)
-       num_boards: Current estimate of the number of boards.
-       Returns list of segments [[x1,y1,x2,y2], ...].
-    """
-    segments = []
-    px, py, theta, L, s, _ = state_vec
-    origin = np.array([px, py])
-    direction = np.array([math.cos(theta), math.sin(theta)])
-    perp_direction = np.array([-math.sin(theta), math.cos(theta)]) # Perpendicular for width/spacing
-
-    # Need to handle case where num_boards is 0 or 1
-    for i in range(num_boards):
-        start_pos = origin + perp_direction * i * s
-        end_pos = start_pos + direction * L
-        segments.append(np.array([start_pos[0], start_pos[1], end_pos[0], end_pos[1]]))
-    segments = np.array(segments)
-    return segments
-
 def mutual_nearest_neighbors(set1, set2):
     # Compute pairwise distances
     dist_matrix = cdist(set1, set2)

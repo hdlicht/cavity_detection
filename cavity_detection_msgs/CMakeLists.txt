@@ -51,6 +51,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   Roi.msg
+  RoiList.msg
   HorizontalObservation.msg
   VerticalObservation.msg
   LogoObservation.msg
@@ -61,11 +62,14 @@ add_service_files(
   FILES
   GetNearestRoi.srv
   GetRoiById.srv
+  AddRoi.srv
   UpdateRoi.srv
   MoveRoi.srv
   MarkFilled.srv
+  MarkTarget.srv
   AddCavity.srv
   UpdateCavity.srv
+  SplitRoi.srv
 )
 
 ## Generate actions in the 'action' folder
@@ -74,6 +78,15 @@ add_service_files(
 #   Action1.action
 #   Action2.action
 # )
+
+catkin_python_setup()
+
+## Install Python scripts
+catkin_install_python(PROGRAMS
+  scripts/cavity_detection_api/api.py
+  scripts/cavity_detection_api/test_client.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
 ## Generate added messages and services with any dependencies listed here
 generate_messages(
