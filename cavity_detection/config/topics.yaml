@@ -1,0 +1,12 @@
+# topics.yaml
+cavity_detection:
+
+  # input topics
+  rgb_image: "/camera/color/image_raw"
+  depth_image: "/camera/depth/image_raw"
+  camera_info: "/camera/color/camera_info"
+
+  # output topics
+  horiz_detections: "/cavity_detection/output"
+  vert_detections: ""
+  visualization: "/cavity_detection/visualization"

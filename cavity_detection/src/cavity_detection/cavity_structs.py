@@ -245,14 +245,17 @@ class HorizontalCavity:
 
 class VerticalCluster:
     def __init__(self, id, initial_observation):
+        rospy.loginfo(f"Creating new vertical cluster {id} with observation {initial_observation}")
         self.id = id
-        self.p1 = np.array(initial_observation.p1) if initial_observation.p1[0] != 99. else None
-        self.p2 = np.array(initial_observation.p2) if initial_observation.p2[0] != 99. else None
+        self.p1 = np.array(initial_observation.p1) if not np.isclose(initial_observation.p1[0], 99.) else None
+        self.p2 = np.array(initial_observation.p2) if not np.isclose(initial_observation.p2[0], 99.) else None
         self.orientation = initial_observation.orientation
         self.num_observations = 1
         self.num_cavities = 0
         self.spacing = 0.4
         self.cavities = []
+        self.is_filled = False
+        self.is_current_target = False
     
     @property
     def width(self):
@@ -285,27 +288,35 @@ class VerticalCluster:
         """ New overlapping check for vertical clusters """
         observed_p1 = np.array(observation.p1)
         observed_p2 = np.array(observation.p2)
-        if self.p1 is None and not observation.p1[0] == 99.:
+
+        rospy.loginfo(f"Checking overlap for cluster {self.id}, ({self.p1},{self.p2}) with observation p1: {observed_p1}, p2: {observed_p2}")
+        if self.p1 is None and not np.isclose(observed_p2[0],99.):
             similar = np.linalg.norm(np.array(self.p2) - observed_p2) < VERTICAL_POINT_THRESHOLD and np.abs(self.orientation-observation.orientation) < VERTICAL_ORIENTATION_THRESHOLD
-        elif self.p2 is None and not observation.p2[0] == 99.:
+        elif self.p2 is None and not np.isclose(observed_p1[0],99.):
+            rospy.loginfo(f"cluster orientation: {self.orientation}, observation orientation: {observation.orientation}")
             similar = np.linalg.norm(np.array(self.p1) - observed_p1) < VERTICAL_POINT_THRESHOLD and np.abs(self.orientation-observation.orientation) < VERTICAL_ORIENTATION_THRESHOLD
+        elif not np.isclose(observed_p1[0],99.) and not np.isclose(observed_p2[0],99.):
+            rospy.loginfo(f"cluster orientation: {self.orientation}, observation orientation: {observation.orientation}")
+            similar = np.linalg.norm(self.p1 - observed_p1) < VERTICAL_POINT_THRESHOLD and np.linalg.norm(self.p2 - observed_p2) < VERTICAL_POINT_THRESHOLD and np.abs(self.orientation-observation.orientation) < VERTICAL_ORIENTATION_THRESHOLD
         else:
-            similar = np.linalg.norm(np.array(self.p1) - observed_p1) < VERTICAL_POINT_THRESHOLD and np.linalg.norm(self.p2 - observed_p2) < VERTICAL_POINT_THRESHOLD and np.abs(self.orientation-observation.orientation) < VERTICAL_ORIENTATION_THRESHOLD
+            similar = False
         return similar
                 
     def add_observation(self, observation):
         # Update the cluster with the new observation
-        if self.p1 is not None:
-            self.p1 = tuple(observation.p1)
-        else:
-            self.p1 = np.average([self.p1, observation.p1], weights=[self.num_observations, 1])
-        if self.p2 is not None:
-            self.p2 = tuple(observation.p2)
-        else:
-            self.p2 = np.average([self.p2, observation.p2], weights=[self.num_observations, 1])
+        rospy.loginfo(f"Adding observation to cluster {self.id}: {observation}")
+        if self.p1 is None and not np.isclose(observation.p1[0], 99.):
+            self.p1 = np.array(observation.p1)
+        elif not np.isclose(observation.p1[0], 99.):
+            self.p1 = np.average([self.p1, observation.p1], weights=[self.num_observations, 1], axis=0)
+        if self.p2 is None and not np.isclose(observation.p2[0], 99.):
+            self.p2 = np.array(observation.p2)
+        elif not np.isclose(observation.p2[0], 99.):
+            self.p2 = np.average([self.p2, observation.p2], weights=[self.num_observations, 1], axis=0)
         self.orientation = np.average([self.orientation, observation.orientation], weights=[self.num_observations, 1])
         self.estimate_num_cavities()
         self.num_observations += 1
+        rospy.loginfo(f"Updated cluster {self.id} with p1: {self.p1}, p2: {self.p2}, orientation: {self.orientation}, num_cavities: {self.num_cavities}")
 
 class VerticalCavity:
     def __init__(self, id, parent, front):

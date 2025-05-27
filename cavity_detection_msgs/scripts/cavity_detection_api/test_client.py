@@ -8,8 +8,8 @@ from geometry_msgs.msg import Pose, Point, Quaternion
 def main():
     rospy.init_node('cavity_client_node')
 
-    x = -2.0
-    y = -1.5
+    x = 2.0
+    y = 0.0
     theta = 0.0
     length = 2.2
     height = 0.22

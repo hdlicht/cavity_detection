@@ -17,6 +17,7 @@ from cavity_detection_msgs.msg import VerticalObservation, LogoObservation
 from cavity_detection.rviz import vert_detector_markers
 from tf.transformations import euler_from_quaternion
 import copy
+from scipy.ndimage import label, find_objects
 
 fx = 570.342
 fy = 570.342
@@ -78,13 +79,14 @@ def get_endpoint_rays(points):
         angle_pairs.append((a1, a2))
         v1 = point[0] > 50
         v2 = point[2] < 590
+        # rospy.loginfo(f"Angle pair: {a1}, {a2} - Valid: {v1}, {v2}")
         valid.append((v1, v2))
     return angle_pairs, valid
 
 class MapTracker:
     def __init__(self):
+        """Initialize the MapTracker node."""
         rospy.init_node("map_tracker_node")
-
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf.TransformListener()
 
@@ -114,6 +116,28 @@ class MapTracker:
 
         # rospy.Timer(rospy.Duration(0.5), self.explore_step)
 
+    def make_marker(self, id, mx, my, inc=1.0, frame_id="map"):
+        """Create a visualization marker."""
+        marker = Marker()
+        marker.header.frame_id = frame_id
+        marker.header.stamp = rospy.Time.now()
+        marker.id = id
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+        wx, wy = self.map_to_world(mx, my)
+        marker.pose.position.x = wx
+        marker.pose.position.y = wy
+        marker.pose.position.z = 0.0
+        marker.pose.orientation.x = 0.0
+        marker.pose.orientation.y = 0.0
+        marker.pose.orientation.z = 0.0
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = marker.scale.y = marker.scale.z = 0.05
+        marker.color.r = 1.0 if inc < 0 else 0.0
+        marker.color.g = 1.0 if inc > 0 else 0.0
+        marker.color.b
+        marker.color.a = 1.0
+        return marker
 
     def world_to_map(self, wx, wy):
         """Converts world coordinates to map grid coordinates (float)."""
@@ -140,6 +164,8 @@ class MapTracker:
             self.obs_grid.data = self.obs_grid_data.flatten().tolist()
             self.obs_grid.header.stamp = rospy.Time.now()
             self.obs_grid_pub.publish(self.obs_grid)
+        
+        self.find_rois()  # Find and publish ROIs based on vertical grid data
 
     def occupancy_callback(self, grid_msg):
         """Process the occupancy grid and store map data."""
@@ -174,6 +200,7 @@ class MapTracker:
             self.obs_grid_initialized = True
 
     def observation_callback(self, msg):
+        print(f"Received observation: {msg}")
         points = np.array(msg.points)
         points = points.reshape(-1, 4)
         try:
@@ -190,13 +217,18 @@ class MapTracker:
             rospy.logwarn("Invalid robot position for ray casting.")
             return
         
+        markers = MarkerArray()
+        
         for i, angle in enumerate(angles):
-            hit = self.ray_cast(robot_x, robot_y, robot_heading, angle)
+            hit = self.ray_cast(robot_x, robot_y, robot_heading, angle, offset=0.2)
             if hit is not None:
                 hit_my, hit_mx = hit
-                self.vert_grid_data[hit_my, hit_mx] = np.clip(self.obs_grid_data[hit_my, hit_mx] + increment[i], 0, 100)
+                marker = self.make_marker(i, hit_mx, hit_my, increment[i])
+                markers.markers.append(marker)
+                self.vert_grid_data[hit_my, hit_mx] = np.clip(self.vert_grid_data[hit_my, hit_mx] + increment[i], 0, 100)
             else:
                 rospy.logwarn("Logo detected but too far away from wall.")
+        
         
         viewed_cells_list = list(self.viewed_cells)
         for cell in viewed_cells_list:
@@ -219,12 +251,69 @@ class MapTracker:
             roi.orientation = orientation
             roi.p1 = [world_x1, world_y1] if valid[i][0] else [99., 99.]
             roi.p2 = [world_x2, world_y2] if valid[i][1] else [99., 99.]
-            if valid[i][0] or valid[i][1]:
-                self.vert_roi_pub.publish(roi)
-                print(f"Published observation: {roi.p1} to {roi.p2} with orientation {roi.orientation}")
+            # if valid[i][0] or valid[i][1]:
+            #     self.vert_roi_pub.publish(roi)
+                # print(f"Published observation: {roi.p1} to {roi.p2} with orientation {roi.orientation}")
+            # Make a triangle marker with the two points and the robot position
+            triangle_marker = Marker()
+            triangle_marker.type = Marker.TRIANGLE_LIST
+            triangle_marker.ns = "triangle"
+            triangle_marker.pose.orientation.w = 1.0
+            triangle_marker.scale.x = 1
+            triangle_marker.scale.y = 1
+            triangle_marker.scale.z = 1
+            triangle_marker.points = [
+                Point(x=world_x1, y=world_y1, z=0.0),
+                Point(x=world_x2, y=world_y2, z=0.0),
+                Point(x=pos[0], y=pos[1], z=0.0)
+            ]
+            triangle_marker.color.r = 0.0
+            triangle_marker.color.g = 1.0
+            triangle_marker.color.b = 0.0
+            triangle_marker.color.a = 1.0
+            triangle_marker.action = Marker.ADD
+            triangle_marker.header.frame_id = "map"
+            triangle_marker.header.stamp = msg.header.stamp
+            triangle_marker.id = i + 1000
+            markers.markers.append(triangle_marker)
+        self.marker_pub.publish(markers)
+
+    def find_rois(self):
+        if self.vert_grid_data is None:
+            rospy.logwarn("Vertical grid data is not initialized.")
+            return
+        if not self.vert_grid_initialized:
+            rospy.logwarn("Vertical grid is not initialized.")
+            return
+        mask = self.vert_grid_data > 50
+        
+        rospy.loginfo(f"Finding ROIs in vertical grid with shape {mask.shape} and {np.sum(mask)} features. Max value: {np.max(self.vert_grid_data)}")
+        labeled, num_features = label(mask)
+        if num_features == 0:
+            rospy.loginfo("No features found in vertical grid.")
+            return []
+        objects = find_objects(labeled)
+        for obj in objects:
+            if obj is None:
+                continue
+            min_y, max_y = obj[0].start, obj[0].stop
+            min_x, max_x = obj[1].start, obj[1].stop
+            if min_y < 0 or max_y >= self.vert_grid_data.shape[0] or min_x < 0 or max_x >= self.vert_grid_data.shape[1]:
+                continue
+            roi = VerticalObservation()
+            roi.header.frame_id = "map"
+            roi.header.stamp = rospy.Time.now()
+            x1, y1 = self.map_to_world(min_x, min_y)
+            x2, y2 = self.map_to_world(max_x, max_y)
+            roi.p1 = [x1, y1]
+            roi.p2 = [x2, y2]
+            orientation = np.arctan2(roi.p2[0] - roi.p1[0], roi.p1[1] - roi.p2[1])
+            roi.orientation = orientation
+            self.vert_roi_pub.publish(roi)
 
 
-    def ray_cast(self, robot_x, robot_y, robot_heading, direction_relative, max_dist_meters=10.0):
+
+    def ray_cast(self, robot_x, robot_y, robot_heading, direction_relative, max_dist_meters=10.0, offset=0.0):
             """
             Casts a ray from the robot's position using DDA and finds the first obstacle hit.
 
@@ -245,7 +334,7 @@ class MapTracker:
                 return None
 
             # 1. Calculate Absolute Ray Direction
-            absolute_ray_angle = robot_heading + direction_relative
+            absolute_ray_angle = robot_heading + direction_relative + offset
             # Normalize angle (optional but good practice)
             # absolute_ray_angle = math.atan2(math.sin(absolute_ray_angle), math.cos(absolute_ray_angle))
 

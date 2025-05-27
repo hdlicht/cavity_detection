@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 import threading
 from cavity_detection.ransac import ransac_plane_fitting
-from cavity_detection_msgs.msg import RoiStamped, HorizontalObservation
+from cavity_detection_msgs.msg import HorizontalObservation
 from geometry_msgs.msg import Point, Quaternion
 from visualization_msgs.msg import Marker
 import time
@@ -134,7 +134,7 @@ def detect(depth_image, time_stamp):
     points_world = points_world[:, :3] # Keep only x, y, z
     max_z = np.nanmax(points_world[:, 2])
     min_z = np.nanmin(points_world[:, 2])
-    print(f"Max Z: {max_z:.3f}, Min Z: {min_z:.3f}")
+    #print(f"Max Z: {max_z:.3f}, Min Z: {min_z:.3f}")
 
     # --- Plane Finding Section ---
     # Using hardcoded ground plane for now
@@ -162,7 +162,7 @@ def detect(depth_image, time_stamp):
     if best_count < 10: # Need a minimum number of points to define the surface
         #print("Not enough inliers found on any horizontal plane.")
         return
-    rospy.loginfo(f"Best height: {best_d}")
+    #rospy.loginfo(f"Best height: {best_d}")
     inlier_points_world = points_world[best_inliers_indices]
     #print(f"Found {best_count} inliers on plane z = {best_d:.3f}m")
     if inlier_points_world.shape[0] == 0:

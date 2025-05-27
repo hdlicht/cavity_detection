@@ -353,7 +353,7 @@ class CavityServer:
         return response
     
     def run_publish_all(self, event=None): 
-        publish_all(self.tf_pub, self.marker_pub, self.roi_pub, self.horiz_clusters, self.horiz_clusters)
+        publish_all(self.tf_pub, self.marker_pub, self.roi_pub, self.horiz_clusters, self.vert_clusters)
     
     def run(self):
         # Set up a timer to publish markers at a fixed rate
